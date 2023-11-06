@@ -1,0 +1,65 @@
+From 593cfdef7ef160c49db5c7ae315cb963f32a947a Mon Sep 17 00:00:00 2001
+From: Sam Shih <sam.shih@mediatek.com>
+Date: Fri, 2 Jun 2023 13:06:08 +0800
+Subject: [PATCH] [slow-speed-io][999-2152-sound-add-mt7986-driver.patch]
+
+---
+ sound/soc/mediatek/Kconfig  | 30 ++++++++++++++++++++++++++++++
+ sound/soc/mediatek/Makefile |  1 +
+ 2 files changed, 31 insertions(+)
+
+diff --git a/sound/soc/mediatek/Kconfig b/sound/soc/mediatek/Kconfig
+index 111e44b64..25e392428 100644
+--- a/sound/soc/mediatek/Kconfig
++++ b/sound/soc/mediatek/Kconfig
+@@ -53,6 +53,36 @@ config SND_SOC_MT6797_MT6351
+ 	  Select Y if you have such device.
+ 	  If unsure select "N".
+ 
++config SND_SOC_MT79XX
++	tristate "ASoC support for Mediatek MT79XX chip"
++	depends on ARCH_MEDIATEK
++	select SND_SOC_MEDIATEK
++	help
++	  This adds ASoC platform driver support for Mediatek MT79XX chip
++	  that can be used with other codecs.
++	  Select Y if you have such device.
++	  If unsure select "N".
++
++config SND_SOC_MT79XX_WM8960
++	tristate "ASoc Audio driver for MT79XX with WM8960 codec"
++	depends on SND_SOC_MT79XX && I2C
++	select SND_SOC_WM8960
++	help
++	  This adds ASoC driver for Mediatek MT79XX boards
++	  with the WM8960 codecs.
++	  Select Y if you have such device.
++	  If unsure select "N".
++
++config SND_SOC_MT79XX_SI3218X
++	tristate "ASoc Audio driver for MT79XX with SI3218X codec"
++	depends on SND_SOC_MT79XX && SPI
++	select SND_SOC_SI3218X_SPI
++	help
++	  This adds ASoC driver for Mediatek MT79XX boards
++	  with the SI3218X codecs.
++	  Select Y if you have such device.
++	  If unsure select "N".
++
+ config SND_SOC_MT8173
+ 	tristate "ASoC support for Mediatek MT8173 chip"
+ 	depends on ARCH_MEDIATEK
+diff --git a/sound/soc/mediatek/Makefile b/sound/soc/mediatek/Makefile
+index 76032cae6..9690326b2 100644
+--- a/sound/soc/mediatek/Makefile
++++ b/sound/soc/mediatek/Makefile
+@@ -2,5 +2,6 @@
+ obj-$(CONFIG_SND_SOC_MEDIATEK) += common/
+ obj-$(CONFIG_SND_SOC_MT2701) += mt2701/
+ obj-$(CONFIG_SND_SOC_MT6797) += mt6797/
++obj-$(CONFIG_SND_SOC_MT79XX) += mt79xx/
+ obj-$(CONFIG_SND_SOC_MT8173) += mt8173/
+ obj-$(CONFIG_SND_SOC_MT8183) += mt8183/
+-- 
+2.34.1
+

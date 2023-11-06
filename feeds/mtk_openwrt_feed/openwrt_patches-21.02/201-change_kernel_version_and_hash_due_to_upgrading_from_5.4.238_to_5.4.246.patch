@@ -1,0 +1,7 @@
+--- a/include/kernel-5.4
++++ b/include/kernel-5.4
+@@ -1,2 +1,2 @@
+-LINUX_VERSION-5.4 = .238
+-LINUX_KERNEL_HASH-5.4.238 = 70a2b2da85598eba6a73cdc0749e441cbdf3011d9babcb7028a46aa8d98aa91f
++LINUX_VERSION-5.4 = .246
++LINUX_KERNEL_HASH-5.4.246 = 0938790a858fd0af6aa6b27a3bdf4c5d4a46aba60e6178156980d58bef7ed9ea

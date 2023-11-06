@@ -1,0 +1,20 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/drv_callbacks.c
++++ hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+@@ -355,6 +355,7 @@ int hostapd_notif_assoc(struct hostapd_d
+ 		}
+ #endif /* CONFIG_WPS */
+ 
++#ifndef RT_CFG80211_SUPPORT
+ 		if (check_sa_query_need(hapd, sta)) {
+ 			status = WLAN_STATUS_ASSOC_REJECTED_TEMPORARILY;
+ 
+@@ -364,6 +365,7 @@ int hostapd_notif_assoc(struct hostapd_d
+ 					  p - buf);
+ 			return 0;
+ 		}
++#endif
+ 
+ 		if (sta->wpa_sm == NULL)
+ 			sta->wpa_sm = wpa_auth_sta_init(hapd->wpa_auth,

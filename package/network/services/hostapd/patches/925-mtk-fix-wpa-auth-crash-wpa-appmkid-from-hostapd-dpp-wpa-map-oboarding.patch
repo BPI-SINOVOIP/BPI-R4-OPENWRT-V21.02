@@ -1,0 +1,127 @@
+Index: hostapd-2022-06-02-4383528e/src/wps/wps_attr_parse.h
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/wps/wps_attr_parse.h
++++ hostapd-2022-06-02-4383528e/src/wps/wps_attr_parse.h
+@@ -65,14 +65,14 @@ struct wps_parse_attr {
+ 	const u8 *dev_name;
+ 	const u8 *public_key;
+ 	const u8 *encr_settings;
+-#ifdef CONFIG_MTK_MAP
+-	const u8 *dpp_uri;
+-#endif /* CONFIG_MTK_MAP */
+ 	const u8 *ssid; /* <= 32 octets */
+ 	const u8 *network_key; /* <= 64 octets */
+ 	const u8 *authorized_macs; /* <= 30 octets */
+ 	const u8 *sec_dev_type_list; /* <= 128 octets */
+ 	const u8 *oob_dev_password; /* 38..54 octets */
++#ifdef CONFIG_MTK_MAP
++	const u8 *dpp_uri;
++#endif /* CONFIG_MTK_MAP */
+ 	u16 manufacturer_len;
+ 	u16 model_name_len;
+ 	u16 model_number_len;
+@@ -80,14 +80,14 @@ struct wps_parse_attr {
+ 	u16 dev_name_len;
+ 	u16 public_key_len;
+ 	u16 encr_settings_len;
+-#ifdef CONFIG_MTK_MAP
+-	u16 dpp_uri_len;
+-#endif /* CONFIG_MTK_MAP */
+ 	u16 ssid_len;
+ 	u16 network_key_len;
+ 	u16 authorized_macs_len;
+ 	u16 sec_dev_type_list_len;
+ 	u16 oob_dev_password_len;
++#ifdef CONFIG_MTK_MAP
++	u16 dpp_uri_len;
++#endif /* CONFIG_MTK_MAP */
+ 
+ 	/* attributes that can occur multiple times */
+ #define MAX_CRED_COUNT 10
+Index: hostapd-2022-06-02-4383528e/src/wps/wps_registrar.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/wps/wps_registrar.c
++++ hostapd-2022-06-02-4383528e/src/wps/wps_registrar.c
+@@ -1638,6 +1638,8 @@ int wps_build_cred(struct wps_data *wps,
+ 	 */
+ 	if (((struct hostapd_data *)wps->wps->cb_ctx)->wps_dpp_uri_recv
+ 		&& ((struct hostapd_data *)wps->wps->cb_ctx)->iface->interfaces->map_sec_enable) {
++		wpa_printf(MSG_DEBUG, "WPS: Do no send credentials in M8"
++			"as URI is received and MAP Security is enabled");
+ 		((struct hostapd_data *)wps->wps->cb_ctx)->wps_dpp_uri_recv = 0;
+ 		goto skip_cred_build;
+ 	}
+@@ -3039,11 +3041,11 @@ static enum wps_process_res wps_process_
+ 
+ #ifdef CONFIG_MTK_MAP
+ 	if (eattr.dpp_uri_len != 0) {
+-		//Milan
+ 		/*
+ 		 * Pass URI to wapp conroller
+ 		 * or proxy agent
+ 		 */
++		wpa_printf(MSG_DEBUG, "WPS: DPP URI is added in M7");
+ 		size_t blen = eattr.dpp_uri_len * 2 + 1;
+ 		char *buf = os_malloc(blen);
+ 		if (buf) {
+Index: hostapd-2022-06-02-4383528e/wpa_supplicant/Makefile
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/wpa_supplicant/Makefile
++++ hostapd-2022-06-02-4383528e/wpa_supplicant/Makefile
+@@ -62,7 +62,7 @@ CONFIG_TDLS_TESTING=y
+ endif
+ 
+ # MTK MAP Macro
+-#CFLAGS += -DCONFIG_MTK_MAP
++CFLAGS += -DCONFIG_MTK_MAP
+ 
+ mkconfig:
+ 	@if [ -f .config ]; then \
+Index: hostapd-2022-06-02-4383528e/wpa_supplicant/ctrl_iface.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/wpa_supplicant/ctrl_iface.c
++++ hostapd-2022-06-02-4383528e/wpa_supplicant/ctrl_iface.c
+@@ -11492,8 +11492,12 @@ static int wpas_ctrl_iface_set_wps_dpp_u
+ 			 * If URI len is zero then clear
+ 			 * existing pointer
+ 			 */
+-			if (wpa_s->dpp_uri)
++			if (wpa_s->dpp_uri) {
+ 				wpabuf_free(wpa_s->dpp_uri);
++				wpa_s->dpp_uri = NULL;
++				wpa_printf(MSG_DEBUG, "WPA: DPP URI deleted for WPS");
++			} else
++				wpa_printf(MSG_DEBUG, "WPA: DPP URI not present for delete");
+ 		} else {
+ 			/*
+ 			 * Look for uri string in the cmd
+@@ -11516,8 +11520,11 @@ static int wpas_ctrl_iface_set_wps_dpp_u
+ 			wpa_s->dpp_uri = wpabuf_parse_bin(pos);
+ 			if (!wpa_s->dpp_uri)
+ 				return -1;
+-			}
++
++			wpa_printf(MSG_DEBUG, "WPA: DPP URI added for WPS");
++		}
+ 	}
++	return 0;
+ }
+ #endif /* CONFIG_MTK_MAP */
+ 
+Index: hostapd-2022-06-02-4383528e/wpa_supplicant/wpa_supplicant.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/wpa_supplicant/wpa_supplicant.c
++++ hostapd-2022-06-02-4383528e/wpa_supplicant/wpa_supplicant.c
+@@ -799,8 +799,11 @@ static void wpa_supplicant_cleanup(struc
+ 	/*
+ 	 * clear DPP URI pointer on supplicant cleanup
+ 	 */
+-	if (wpa_s->dpp_uri)
++	if (wpa_s->dpp_uri) {
++		wpa_printf(MSG_DEBUG, "WPA: DPP URI deleted for WPS");
+ 		wpabuf_free(wpa_s->dpp_uri);
++		wpa_s->dpp_uri = NULL;
++	}
+ #endif /* CONFIG_MTK_MAP */
+ }
+ 

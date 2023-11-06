@@ -1,0 +1,34 @@
+Index: hostapd-2022-07-29-b704dc72/hostapd/hostapd_cli.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/hostapd/hostapd_cli.c
++++ hostapd-2022-07-29-b704dc72/hostapd/hostapd_cli.c
+@@ -47,6 +47,7 @@ static char ** list_cmd_list(void);
+ static void hostapd_cli_receive(int sock, void *eloop_ctx, void *sock_ctx);
+ static void update_stations(struct wpa_ctrl *ctrl);
+ static void cli_event(const char *str);
++static int action_terminate = 0;
+ 
+ 
+ static void usage(void)
+@@ -2039,6 +2040,10 @@ static void hostapd_cli_cleanup(void)
+ 	os_program_deinit();
+ }
+ 
++static void hostapd_cli_handle_signal(int sig)
++{
++	action_terminate = 1;
++}
+ 
+ static void hostapd_cli_action(struct wpa_ctrl *ctrl)
+ {
+@@ -2049,8 +2054,9 @@ static void hostapd_cli_action(struct wp
+ 	size_t len;
+ 
+ 	fd = wpa_ctrl_get_fd(ctrl);
++	signal(SIGTERM, hostapd_cli_handle_signal);
+ 
+-	while (!hostapd_cli_quit) {
++	while (!hostapd_cli_quit && !action_terminate) {
+ 		FD_ZERO(&rfds);
+ 		FD_SET(fd, &rfds);
+ 		tv.tv_sec = ping_interval;

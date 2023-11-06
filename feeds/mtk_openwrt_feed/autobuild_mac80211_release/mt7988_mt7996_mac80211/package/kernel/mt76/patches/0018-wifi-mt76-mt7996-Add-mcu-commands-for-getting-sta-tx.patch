@@ -1,0 +1,249 @@
+From 63501a3e941097581dcee61a0149ee5bc944c579 Mon Sep 17 00:00:00 2001
+From: Yi-Chia Hsieh <yi-chia.hsieh@mediatek.com>
+Date: Wed, 28 Jun 2023 08:10:25 +0800
+Subject: [PATCH 18/98] wifi: mt76: mt7996: Add mcu commands for getting sta tx
+ statistic
+
+Per peer Tx/Rx statistic can only be obtained by querying WM when WED is
+on. This patch switches to periodic event reporting in the case of WED
+being enabled.
+---
+ mt76_connac_mcu.h | 15 +++++++++++
+ mt7996/mac.c      |  5 ++++
+ mt7996/main.c     | 15 +++++++++++
+ mt7996/mcu.c      | 68 +++++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/mcu.h      | 26 ++++++++++++++++++
+ mt7996/mt7996.h   |  1 +
+ 6 files changed, 130 insertions(+)
+
+diff --git a/mt76_connac_mcu.h b/mt76_connac_mcu.h
+index 90c08d2..e9dd9aa 100644
+--- a/mt76_connac_mcu.h
++++ b/mt76_connac_mcu.h
+@@ -1023,6 +1023,8 @@ enum {
+ 	MCU_UNI_EVENT_TX_DONE = 0x2d,
+ 	MCU_UNI_EVENT_THERMAL = 0x35,
+ 	MCU_UNI_EVENT_NIC_CAPAB = 0x43,
++	MCU_UNI_EVENT_PER_STA_INFO = 0x6d,
++	MCU_UNI_EVENT_ALL_STA_INFO = 0x6e,
+ };
+ 
+ #define MCU_UNI_CMD_EVENT			BIT(1)
+@@ -1242,6 +1244,8 @@ enum {
+ 	MCU_UNI_CMD_FIXED_RATE_TABLE = 0x40,
+ 	MCU_UNI_CMD_RRO = 0x57,
+ 	MCU_UNI_CMD_OFFCH_SCAN_CTRL = 0x58,
++	MCU_UNI_CMD_PER_STA_INFO = 0x6d,
++	MCU_UNI_CMD_ALL_STA_INFO = 0x6e,
+ 	MCU_UNI_CMD_ASSERT_DUMP = 0x6f,
+ };
+ 
+@@ -1322,6 +1326,17 @@ enum {
+ 	UNI_OFFLOAD_OFFLOAD_BMC_RPY_DETECT,
+ };
+ 
++enum UNI_ALL_STA_INFO_TAG {
++	UNI_ALL_STA_TX_RATE,
++	UNI_ALL_STA_TX_STAT,
++	UNI_ALL_STA_TXRX_ADM_STAT,
++	UNI_ALL_STA_TXRX_AIR_TIME,
++	UNI_ALL_STA_DATA_TX_RETRY_COUNT,
++	UNI_ALL_STA_GI_MODE,
++	UNI_ALL_STA_TXRX_MSDU_COUNT,
++	UNI_ALL_STA_MAX_NUM
++};
++
+ enum {
+ 	MT_NIC_CAP_TX_RESOURCE,
+ 	MT_NIC_CAP_TX_EFUSE_ADDR,
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index bdc90a0..4828f10 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2272,6 +2272,11 @@ void mt7996_mac_work(struct work_struct *work)
+ 		mphy->mac_work_count = 0;
+ 
+ 		mt7996_mac_update_stats(phy);
++
++		if (mtk_wed_device_active(&phy->dev->mt76.mmio.wed)) {
++			mt7996_mcu_get_all_sta_info(phy, UNI_ALL_STA_TXRX_ADM_STAT);
++			mt7996_mcu_get_all_sta_info(phy, UNI_ALL_STA_TXRX_MSDU_COUNT);
++		};
+ 	}
+ 
+ 	mutex_unlock(&mphy->dev->mutex);
+diff --git a/mt7996/main.c b/mt7996/main.c
+index f152e76..e9e1fd9 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -977,6 +977,7 @@ static void mt7996_sta_statistics(struct ieee80211_hw *hw,
+ 				  struct ieee80211_sta *sta,
+ 				  struct station_info *sinfo)
+ {
++	struct mt7996_phy *phy = mt7996_hw_phy(hw);
+ 	struct mt7996_sta *msta = (struct mt7996_sta *)sta->drv_priv;
+ 	struct rate_info *txrate = &msta->wcid.rate;
+ 
+@@ -1008,6 +1009,20 @@ static void mt7996_sta_statistics(struct ieee80211_hw *hw,
+ 
+ 	sinfo->avg_ack_signal = -(s8)ewma_avg_signal_read(&msta->avg_ack_signal);
+ 	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_ACK_SIGNAL_AVG);
++
++	if (mtk_wed_device_active(&phy->dev->mt76.mmio.wed)) {
++		sinfo->tx_bytes = msta->wcid.stats.tx_bytes;
++		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_TX_BYTES64);
++
++		sinfo->rx_bytes = msta->wcid.stats.rx_bytes;
++		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_RX_BYTES64);
++
++		sinfo->tx_packets = msta->wcid.stats.tx_packets;
++		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_TX_PACKETS);
++
++		sinfo->rx_packets = msta->wcid.stats.rx_packets;
++		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_RX_PACKETS);
++	}
+ }
+ 
+ static void mt7996_sta_rc_work(void *data, struct ieee80211_sta *sta)
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 2c611e7..652a600 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -477,6 +477,54 @@ mt7996_mcu_rx_thermal_notify(struct mt7996_dev *dev, struct sk_buff *skb)
+ 	phy->throttle_state = n->duty_percent;
+ }
+ 
++static void
++mt7996_mcu_rx_all_sta_info_event(struct mt7996_dev *dev, struct sk_buff *skb)
++{
++	struct mt7996_mcu_all_sta_info_event *res;
++	u16 i;
++
++	skb_pull(skb, sizeof(struct mt7996_mcu_rxd));
++
++	res = (struct mt7996_mcu_all_sta_info_event *)skb->data;
++
++	for (i = 0; i < le16_to_cpu(res->sta_num); i++) {
++		u8 ac;
++		u16 wlan_idx;
++		struct mt76_wcid *wcid;
++
++		switch (le16_to_cpu(res->tag)) {
++		case UNI_ALL_STA_TXRX_ADM_STAT:
++			wlan_idx = le16_to_cpu(res->adm_stat[i].wlan_idx);
++			wcid = rcu_dereference(dev->mt76.wcid[wlan_idx]);
++
++			if (!wcid)
++				break;
++
++			for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
++				wcid->stats.tx_bytes +=
++					le32_to_cpu(res->adm_stat[i].tx_bytes[ac]);
++				wcid->stats.rx_bytes +=
++					le32_to_cpu(res->adm_stat[i].rx_bytes[ac]);
++			}
++			break;
++		case UNI_ALL_STA_TXRX_MSDU_COUNT:
++			wlan_idx = le16_to_cpu(res->msdu_cnt[i].wlan_idx);
++			wcid = rcu_dereference(dev->mt76.wcid[wlan_idx]);
++
++			if (!wcid)
++				break;
++
++			wcid->stats.tx_packets +=
++				le32_to_cpu(res->msdu_cnt[i].tx_msdu_cnt);
++			wcid->stats.rx_packets +=
++				le32_to_cpu(res->msdu_cnt[i].rx_msdu_cnt);
++			break;
++		default:
++			break;
++		}
++	}
++}
++
+ static void
+ mt7996_mcu_rx_ext_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ {
+@@ -524,6 +572,9 @@ mt7996_mcu_uni_rx_unsolicited_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 	case MCU_UNI_EVENT_THERMAL:
+ 		mt7996_mcu_rx_thermal_notify(dev, skb);
+ 		break;
++	case MCU_UNI_EVENT_ALL_STA_INFO:
++		mt7996_mcu_rx_all_sta_info_event(dev, skb);
++		break;
+ 	default:
+ 		break;
+ 	}
+@@ -4192,3 +4243,20 @@ int mt7996_mcu_set_rro(struct mt7996_dev *dev, u16 tag, u8 val)
+ 	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(RRO), &req,
+ 				 sizeof(req), true);
+ }
++
++int mt7996_mcu_get_all_sta_info(struct mt7996_phy *phy, u16 tag)
++{
++	struct mt7996_dev *dev = phy->dev;
++	struct {
++		u8 _rsv[4];
++
++		__le16 tag;
++		__le16 len;
++	} __packed req = {
++		.tag = cpu_to_le16(tag),
++		.len = cpu_to_le16(sizeof(req) - 4),
++	};
++
++	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(ALL_STA_INFO),
++				 &req, sizeof(req), false);
++}
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 05785cb..97151d1 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -191,6 +191,32 @@ struct mt7996_mcu_thermal_notify {
+ 	u8 __rsv2[4];
+ } __packed;
+ 
++struct mt7996_mcu_all_sta_info_event {
++	u8 rsv[4];
++	__le16 tag;
++	__le16 len;
++        u8 more;
++        u8 rsv2;
++        __le16 sta_num;
++        u8 rsv3[2];
++
++	union {
++		struct {
++			__le16 wlan_idx;
++			u8 rsv[2];
++			__le32 tx_bytes[IEEE80211_NUM_ACS];
++			__le32 rx_bytes[IEEE80211_NUM_ACS];
++		} adm_stat[0];
++
++		struct {
++			__le16 wlan_idx;
++			u8 rsv[2];
++			__le32 tx_msdu_cnt;
++			__le32 rx_msdu_cnt;
++		} msdu_cnt[0];
++	};
++} __packed;
++
+ enum mt7996_chan_mib_offs {
+ 	UNI_MIB_OBSS_AIRTIME = 26,
+ 	UNI_MIB_NON_WIFI_TIME = 27,
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 0bb20a9..420d113 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -494,6 +494,7 @@ int mt7996_mcu_fw_dbg_ctrl(struct mt7996_dev *dev, u32 module, u8 level);
+ int mt7996_mcu_trigger_assert(struct mt7996_dev *dev);
+ void mt7996_mcu_rx_event(struct mt7996_dev *dev, struct sk_buff *skb);
+ void mt7996_mcu_exit(struct mt7996_dev *dev);
++int mt7996_mcu_get_all_sta_info(struct mt7996_phy *phy, u16 tag);
+ 
+ static inline u8 mt7996_max_interface_num(struct mt7996_dev *dev)
+ {
+-- 
+2.18.0
+

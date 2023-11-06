@@ -1,0 +1,94 @@
+From 531d586b936634fad23651d18d2bbc832692c520 Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Fri, 11 Aug 2023 18:26:39 +0800
+Subject: [PATCH 74/98] wifi: mt76: mt7996: add rro timeout setting
+
+Signed-off-by: sujuan.chen <sujuan.chen@mediatek.com>
+---
+ mt7996/init.c   |  5 +++++
+ mt7996/mcu.c    | 11 ++++++++++-
+ mt7996/mt7996.h |  2 +-
+ mt7996/regs.h   |  2 ++
+ 4 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 1ece390..51649dd 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -506,6 +506,11 @@ void mt7996_mac_init(struct mt7996_dev *dev)
+ 	/* rro module init */
+ 	mt7996_mcu_set_rro(dev, UNI_RRO_SET_PLATFORM_TYPE, 2);
+ 	if (dev->has_rro) {
++		u16 timeout;
++
++		timeout = mt76_rr(dev, MT_HW_REV) == MT_HW_VER1 ? 512 : 128;
++
++		mt7996_mcu_set_rro(dev, UNI_RRO_SET_FLUSH_TIMEOUT, timeout);
+ 		mt7996_mcu_set_rro(dev, UNI_RRO_SET_BYPASS_MODE, 1);
+ 		mt7996_mcu_set_rro(dev, UNI_RRO_SET_TXFREE_PATH, 0);
+ 	} else {
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index ce38a5e..bebd020 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -4626,7 +4626,7 @@ int mt7996_mcu_trigger_assert(struct mt7996_dev *dev)
+ 				 &req, sizeof(req), false);
+ }
+ 
+-int mt7996_mcu_set_rro(struct mt7996_dev *dev, u16 tag, u8 val)
++int mt7996_mcu_set_rro(struct mt7996_dev *dev, u16 tag, u16 val)
+ {
+ 	struct {
+ 		u8 __rsv1[4];
+@@ -4648,6 +4648,11 @@ int mt7996_mcu_set_rro(struct mt7996_dev *dev, u16 tag, u8 val)
+ 				u8 path;
+ 				u8 __rsv2[3];
+ 			} __packed txfree_path;
++			struct {
++				u16 flush_one;
++				u16 flush_all;
++				u8 __rsv2[4];
++			}  __packed timeout;
+ 		};
+ 	} __packed req = {
+ 		.tag = cpu_to_le16(tag),
+@@ -4664,6 +4669,10 @@ int mt7996_mcu_set_rro(struct mt7996_dev *dev, u16 tag, u8 val)
+ 	case UNI_RRO_SET_TXFREE_PATH:
+ 		req.txfree_path.path = val;
+ 		break;
++	case UNI_RRO_SET_FLUSH_TIMEOUT:
++		req.timeout.flush_one = val;
++		req.timeout.flush_all = val * 2;
++		break;
+ 	default:
+ 		return -EINVAL;
+ 	}
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index af67c59..06e00f4 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -676,7 +676,7 @@ int mt7996_mcu_set_fixed_rate_table(struct mt7996_phy *phy, u8 table_idx,
+ 				    u16 rate_idx, bool beacon);
+ int mt7996_mcu_rf_regval(struct mt7996_dev *dev, u32 regidx, u32 *val, bool set);
+ int mt7996_mcu_set_hdr_trans(struct mt7996_dev *dev, bool hdr_trans);
+-int mt7996_mcu_set_rro(struct mt7996_dev *dev, u16 tag, u8 val);
++int mt7996_mcu_set_rro(struct mt7996_dev *dev, u16 tag, u16 val);
+ int mt7996_mcu_reset_rro_sessions(struct mt7996_dev *dev, u16 seid);
+ int mt7996_mcu_wa_cmd(struct mt7996_dev *dev, int cmd, u32 a1, u32 a2, u32 a3);
+ int mt7996_mcu_red_config(struct mt7996_dev *dev, bool enable);
+diff --git a/mt7996/regs.h b/mt7996/regs.h
+index a0b5270..77a2f9d 100644
+--- a/mt7996/regs.h
++++ b/mt7996/regs.h
+@@ -667,6 +667,8 @@ enum offs_rev {
+ #define MT_PAD_GPIO_ADIE_NUM_7992		BIT(15)
+ 
+ #define MT_HW_REV				0x70010204
++#define MT_HW_VER1				0x8a00
++
+ #define MT_WF_SUBSYS_RST			0x70028600
+ 
+ /* PCIE MAC */
+-- 
+2.18.0
+

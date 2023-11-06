@@ -1,0 +1,39 @@
+diff --git a/hostapd/Makefile b/hostapd/Makefile
+index 46a01f3..68f8d2a 100644
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -41,6 +41,9 @@ endif
+ # MTK MAP Macro
+ CFLAGS += -DCONFIG_MTK_MAP
+ 
++# MTK WPS UNCONFIG FEATURE
++CFLAGS += -DWPS_UNCONFIG_FEATURE_SUPPORT
++
+ ifdef CONFIG_TESTING_OPTIONS
+ CFLAGS += -DCONFIG_TESTING_OPTIONS
+ CONFIG_WPS_TESTING=y
+diff --git a/src/ap/wps_hostapd.c b/src/ap/wps_hostapd.c
+index e0a05c5..f15def3 100644
+--- a/src/ap/wps_hostapd.c
++++ b/src/ap/wps_hostapd.c
+@@ -526,6 +526,20 @@ static int hapd_wps_cred_cb(struct hostapd_data *hapd, void *ctx)
+ 		hapd->wps->network_key_len = cred->key_len;
+ 		os_memcpy(hapd->wps->network_key, cred->key, cred->key_len);
+ 	}
++#ifdef WPS_UNCONFIG_FEATURE_SUPPORT
++	/* Send Credentials to wappd for UN-CONFIG WPS MAP feature */
++	size_t blen = (sizeof(struct wps_credential) - sizeof(size_t) - sizeof (const u8 *)) * 2 + 1;
++	size_t wps_cred_len = sizeof(struct wps_credential) - sizeof(size_t) - sizeof (const u8 *);
++	char *msg = os_malloc(blen);
++
++	if (msg) {
++		wpa_snprintf_hex(msg, blen, (u8 *)cred, wps_cred_len);
++		wpa_msg(hapd, MSG_INFO, "%s%s", WPS_EVENT_CRED_RECEIVED, msg);
++		wpa_printf(MSG_INFO, "WPS CRED recieved AP event sent");
++		os_free(msg);
++	}
++#endif /* WPS_UNCONFIG_FEATURE_SUPPORT */
++
+ 	hapd->wps->wps_state = WPS_STATE_CONFIGURED;
+ 	for (i = 0; i < hapd->iface->num_bss; i++) {
+ 		if (hapd->iface && hapd->iface->bss[i] && hapd->iface->bss[i] == hapd) {

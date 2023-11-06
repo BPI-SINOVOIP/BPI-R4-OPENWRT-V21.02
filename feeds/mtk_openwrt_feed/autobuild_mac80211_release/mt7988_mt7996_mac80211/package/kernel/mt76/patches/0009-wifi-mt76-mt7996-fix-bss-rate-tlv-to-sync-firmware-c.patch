@@ -1,0 +1,27 @@
+From 3e4d68091c7b74769481acdf1b305fd1edb15d4d Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Tue, 30 May 2023 11:27:01 +0800
+Subject: [PATCH 09/98] wifi: mt76: mt7996: fix bss rate tlv to sync firmware
+ change
+
+Signed-off-by: sujuan.chen <sujuan.chen@mediatek.com>
+---
+ mt7996/mcu.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index c20a947..78ecd75 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -259,7 +259,7 @@ struct bss_rate_tlv {
+ 	u8 short_preamble;
+ 	u8 bc_fixed_rate;
+ 	u8 mc_fixed_rate;
+-	u8 __rsv2[1];
++	u8 __rsv2[9];
+ } __packed;
+ 
+ struct bss_ra_tlv {
+-- 
+2.18.0
+

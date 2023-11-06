@@ -1,0 +1,163 @@
+Index: hostapd-2022-07-29-b704dc72/hostapd/ctrl_iface.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/hostapd/ctrl_iface.c
++++ hostapd-2022-07-29-b704dc72/hostapd/ctrl_iface.c
+@@ -2425,7 +2425,8 @@ static int hostapd_ctrl_get_pmk(struct h
+ 
+ #ifdef CONFIG_TESTING_OPTIONS
+ #ifdef CONFIG_MTK_IEEE80211BE
+-	struct wpa_ml_group *ml_group = hapd->ml_group;
++	/* struct wpa_ml_group *ml_group = hapd->ml_group; */
++	struct pmk_list * pmk_cache_list = NULL;
+ #endif
+ #endif
+ 
+@@ -2433,7 +2434,7 @@ static int hostapd_ctrl_get_pmk(struct h
+ 		return -1;
+ 
+ #ifdef CONFIG_TESTING_OPTIONS
+-#ifdef CONFIG_MTK_IEEE80211BE
++#if 0
+ 	/* check the input sta addr is sta mld addr? */
+ 	if (ml_group) {
+ 		u8 i = 0;
+@@ -2467,6 +2468,11 @@ GET_MLD_PMK:
+ 		}
+ 	}
+ #endif
++#ifdef CONFIG_MTK_IEEE80211BE
++	pmk_cache_list = wpa_auth_mlo_get_pmk(hapd, addr);
++	if (pmk_cache_list)
++		return wpa_snprintf_hex(buf, buflen, pmk_cache_list->PMK, pmk_cache_list->pmk_len);
++#endif /* CONFIG_MTK_IEEE80211BE */
+ #endif
+ 
+ 	sta = ap_get_sta(hapd, addr);
+Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.h
++++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+@@ -46,6 +46,16 @@ struct mesh_conf;
+ 
+ struct hostapd_iface;
+ 
++#ifdef CONFIG_MTK_IEEE80211BE
++#define PMK_CACHE_LEN 128
++struct pmk_list {
++	u8 addr[ETH_ALEN]; /*sta mac or mld mac*/
++	u8 PMK[PMK_LEN_MAX];
++	unsigned int pmk_len;
++	u8 valid;
++};
++#endif
++
+ struct hapd_interfaces {
+ 	int (*reload_config)(struct hostapd_iface *iface, int reconf);
+ 	struct hostapd_config * (*config_read_cb)(const char *config_fname);
+@@ -97,6 +107,9 @@ struct hapd_interfaces {
+ #ifdef CONFIG_MTK_MAP
+ 	u8 map_sec_enable;
+ #endif /* CONFIG_MTK_MAP */
++#ifdef CONFIG_MTK_IEEE80211BE
++	struct pmk_list pmk_cache_list[PMK_CACHE_LEN];
++#endif /* CONFIG_MTK_IEEE80211BE */
+ };
+ 
+ enum hostapd_chan_status {
+@@ -777,4 +790,8 @@ void fst_hostapd_fill_iface_obj(struct h
+ 
+ int hostapd_set_acl(struct hostapd_data *hapd);
+ 
++#ifdef CONFIG_MTK_IEEE80211BE
++struct pmk_list * wpa_auth_mlo_get_pmk(struct hostapd_data *hapd, const u8 *addr);
++#endif /* CONFIG_MTK_IEEE80211BE */
++
+ #endif /* HOSTAPD_H */
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+@@ -83,6 +83,68 @@ static const int dot11RSNAConfigPMKLifet
+ static const int dot11RSNAConfigPMKReauthThreshold = 70;
+ static const int dot11RSNAConfigSATimeout = 60;
+ 
++#ifdef CONFIG_MTK_IEEE80211BE
++int wpa_auth_mlo_save_pmk(struct hostapd_data *hapd, const u8 *addr,
++const u8 *pmk, unsigned int pmk_len)
++{
++	int i = 0;
++	struct hapd_interfaces *interfaces = NULL;
++
++	if (!hapd || !addr || !hapd->iface || !hapd->iface->interfaces || !pmk)
++		return -1;
++
++	/* 1. search pmk*/
++	interfaces = hapd->iface->interfaces;
++	for (i = 0; i < PMK_CACHE_LEN; i++) {
++		if (os_memcmp(interfaces->pmk_cache_list[i].addr, addr, ETH_ALEN) == 0) {
++			break;
++		}
++	}
++	wpa_printf(MSG_INFO, "ML: find pmk idx:%d", i);
++	/*2. write or update pmk*/
++	if (i == PMK_CACHE_LEN) { /*not find, write pmk*/
++		for (i = 0; i < PMK_CACHE_LEN; i++) {
++			if (interfaces->pmk_cache_list[i].valid == 0) {
++				os_memcpy(interfaces->pmk_cache_list[i].addr, addr, ETH_ALEN);
++				os_memcpy(interfaces->pmk_cache_list[i].PMK, pmk, pmk_len);
++				interfaces->pmk_cache_list[i].pmk_len = pmk_len;
++				interfaces->pmk_cache_list[i].valid = 1;
++				wpa_hexdump(MSG_INFO, "ML: PMK write", interfaces->pmk_cache_list[i].PMK, interfaces->pmk_cache_list[i].pmk_len);
++				wpa_printf(MSG_INFO, "ML: save pmk done idx:%d, pmk len:%d, peer mld mac (" MACSTR ")", i, pmk_len, MAC2STR(addr));
++				break;
++			}
++		}
++	} else { /*find, update pmk*/
++		os_memcpy(interfaces->pmk_cache_list[i].PMK, pmk, pmk_len);
++		interfaces->pmk_cache_list[i].pmk_len = pmk_len;
++		wpa_hexdump(MSG_INFO, "ML: PMK update", interfaces->pmk_cache_list[i].PMK, interfaces->pmk_cache_list[i].pmk_len);		
++		wpa_printf(MSG_INFO, "ML: update pmk done idx:%d, pmk len:%d, peer mld mac (" MACSTR ")", i, pmk_len, MAC2STR(addr));
++	}
++
++	return -1;
++}
++
++struct pmk_list * wpa_auth_mlo_get_pmk(struct hostapd_data *hapd, const u8 *addr)
++{
++	int i = 0;
++	struct hapd_interfaces *interfaces = NULL;
++
++	if (!hapd || !addr || !hapd->iface || !hapd->iface->interfaces)
++		return NULL;
++
++	interfaces = hapd->iface->interfaces;
++	for (i = 0; i < PMK_CACHE_LEN; i++) {
++		if (os_memcmp(interfaces->pmk_cache_list[i].addr, addr, ETH_ALEN) == 0) {
++			wpa_printf(MSG_INFO, "ML: find mlo pmk idx:%d, peer mld mac (" MACSTR ")", i, MAC2STR(interfaces->pmk_cache_list[i].addr));
++			wpa_hexdump(MSG_INFO, "ML: output PMK", interfaces->pmk_cache_list[i].PMK, interfaces->pmk_cache_list[i].pmk_len);		
++			return &interfaces->pmk_cache_list[i];
++		}
++	}
++
++	return NULL;
++}
++
++#endif
+ 
+ static inline int wpa_auth_mic_failure_report(
+ 	struct wpa_authenticator *wpa_auth, const u8 *addr)
+@@ -2304,6 +2366,14 @@ SM_STATE(WPA_PTK, INITPSK)
+ #endif /* CONFIG_IEEE80211R_AP */
+ 	}
+ #endif /* CONFIG_SAE */
++#ifdef CONFIG_MTK_IEEE80211BE
++	if (1) {
++		struct hostapd_data *hapd = sm->wpa_auth->cb_ctx;
++
++		if (hapd && sm->dot11MultiLinkActivated)
++			wpa_auth_mlo_save_pmk(hapd, sm->sta_ml_ie->ml_addr, sm->PMK, sm->pmk_len);
++	}
++#endif
+ 	sm->req_replay_counter_used = 0;
+ }
+ 

@@ -1,0 +1,13 @@
+Index: hostapd-2022-07-29-b704dc72/hostapd/ctrl_iface.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/hostapd/ctrl_iface.c
++++ hostapd-2022-07-29-b704dc72/hostapd/ctrl_iface.c
+@@ -4602,7 +4602,7 @@ static void hostapd_global_ctrl_iface_re
+ 					      void *sock_ctx)
+ {
+ 	struct hapd_interfaces *interfaces = eloop_ctx;
+-	char buffer[256], *buf = buffer;
++	char buffer[4096], *buf = buffer;
+ 	int res;
+ 	struct sockaddr_storage from;
+ 	socklen_t fromlen = sizeof(from);

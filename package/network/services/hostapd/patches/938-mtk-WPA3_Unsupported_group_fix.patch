@@ -1,0 +1,14 @@
+diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
+index 43f99a1..81106ee 100644
+--- a/src/ap/ieee802_11.c
++++ b/src/ap/ieee802_11.c
+@@ -1722,8 +1722,9 @@ reply:
+ 		 * rejected it as unsupported group. */
+ 		if (resp == WLAN_STATUS_FINITE_CYCLIC_GROUP_NOT_SUPPORTED &&
+ 		    !data && end - pos >= 2)
+-
++			data = wpabuf_alloc_copy(pos, 2);
++
+ 		sae_sme_send_external_auth_status(hapd, sta, resp);
+ 		send_auth_reply(hapd, sta, mgmt->sa, mgmt->bssid, WLAN_AUTH_SAE,
+ 				auth_transaction, resp,

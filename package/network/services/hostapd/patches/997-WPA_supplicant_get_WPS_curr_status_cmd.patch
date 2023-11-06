@@ -1,0 +1,406 @@
+diff --git a/src/wps/wps.h b/src/wps/wps.h
+index fed3e28..cea0a4b 100644
+--- a/src/wps/wps.h
++++ b/src/wps/wps.h
+@@ -634,6 +634,10 @@ struct upnp_pending_message {
+  * structures and it is maintained over multiple registration protocol runs.
+  */
+ struct wps_context {
++	/**
++	 * curr_wps_status - get the current wps_status
++	 */
++	unsigned int curr_wps_status;
+ 	/**
+ 	 * ap - Whether the local end is an access point
+ 	 */
+diff --git a/src/wps/wps_enrollee.c b/src/wps/wps_enrollee.c
+index 2558fa4..eff42ff 100644
+--- a/src/wps/wps_enrollee.c
++++ b/src/wps/wps_enrollee.c
+@@ -111,6 +111,7 @@ static struct wpabuf * wps_build_m1(struct wps_data *wps)
+ 	u16 config_methods;
+ 	u8 multi_ap_backhaul_sta = 0;
+ 
++	wps->wps->curr_wps_status = SEND_M1;
+ 	if (random_get_bytes(wps->nonce_e, WPS_NONCE_LEN) < 0)
+ 		return NULL;
+ 	wpa_hexdump(MSG_DEBUG, "WPS: Enrollee Nonce",
+@@ -167,6 +168,7 @@ static struct wpabuf * wps_build_m1(struct wps_data *wps)
+ 	}
+ 
+ 	wps->state = RECV_M2;
++	wps->wps->curr_wps_status = RECV_M2;
+ 	return msg;
+ }
+ 
+@@ -205,6 +207,7 @@ static struct wpabuf * wps_build_m3(struct wps_data *wps)
+ 	}
+ 
+ 	wps->state = RECV_M4;
++	wps->wps->curr_wps_status = RECV_M4;
+ 	return msg;
+ }
+ 
+@@ -240,6 +243,7 @@ static struct wpabuf * wps_build_m5(struct wps_data *wps)
+ 	wpabuf_clear_free(plain);
+ 
+ 	wps->state = RECV_M6;
++	wps->wps->curr_wps_status = RECV_M6;
+ 	return msg;
+ }
+ 
+@@ -423,6 +427,7 @@ static struct wpabuf * wps_build_m7(struct wps_data *wps)
+ 	}
+ 
+ 	wps->state = RECV_M8;
++	wps->wps->curr_wps_status = RECV_M8;
+ 	return msg;
+ }
+ 
+@@ -447,10 +452,15 @@ static struct wpabuf * wps_build_wsc_done(struct wps_data *wps)
+ 	}
+ 
+ 	if (wps->wps->ap)
++	{
+ 		wps->state = RECV_ACK;
+-	else {
++		wps->wps->curr_wps_status = RECV_ACK;
++	}
++	else
++	{
+ 		wps_success_event(wps->wps, wps->peer_dev.mac_addr);
+ 		wps->state = WPS_FINISHED;
++		wps->wps->curr_wps_status = WPS_FINISHED;
+ 	}
+ 	return msg;
+ }
+@@ -489,6 +499,7 @@ struct wpabuf * wps_enrollee_get_msg(struct wps_data *wps,
+ 		if (msg) {
+ 			/* Another M2/M2D may be received */
+ 			wps->state = RECV_M2;
++			wps->wps->curr_wps_status = RECV_M2;
+ 		}
+ 		break;
+ 	case SEND_WSC_NACK:
+@@ -978,6 +989,7 @@ static enum wps_process_res wps_process_m2(struct wps_data *wps,
+ 		wpa_printf(MSG_DEBUG, "WPS: Unexpected state (%d) for "
+ 			   "receiving M2", wps->state);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -986,6 +998,7 @@ static enum wps_process_res wps_process_m2(struct wps_data *wps,
+ 	    wps_process_uuid_r(wps, attr->uuid_r) ||
+ 	    wps_process_dev_pw_id(wps, attr->dev_password_id)) {
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1002,13 +1015,15 @@ static enum wps_process_res wps_process_m2(struct wps_data *wps,
+ 			   "registration of a new Registrar");
+ 		wps->config_error = WPS_CFG_SETUP_LOCKED;
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+ 	if (wps_process_pubkey(wps, attr->public_key, attr->public_key_len) ||
+ 	    wps_process_authenticator(wps, attr->authenticator, msg) ||
+-	    wps_process_device_attrs(&wps->peer_dev, attr)) {
++		wps_process_device_attrs(&wps->peer_dev, attr)) {
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1018,11 +1033,12 @@ static enum wps_process_res wps_process_m2(struct wps_data *wps,
+ 		struct wps_parse_attr eattr;
+ 
+ 		decrypted = wps_decrypt_encr_settings(wps, attr->encr_settings,
+-						      attr->encr_settings_len);
++				attr->encr_settings_len);
+ 		if (decrypted == NULL) {
+ 			wpa_printf(MSG_DEBUG, "WPS: Failed to decrypt "
+-				   "Encrypted Settings attribute");
++					"Encrypted Settings attribute");
+ 			wps->state = SEND_WSC_NACK;
++			wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 			return WPS_CONTINUE;
+ 		}
+ 
+@@ -1035,16 +1051,19 @@ static enum wps_process_res wps_process_m2(struct wps_data *wps,
+ 				      eattr.num_cred, attr->version2 != NULL)) {
+ 			wpabuf_clear_free(decrypted);
+ 			wps->state = SEND_WSC_NACK;
++			wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 			return WPS_CONTINUE;
+ 		}
+ 		wpabuf_clear_free(decrypted);
+ 
+ 		wps->state = WPS_MSG_DONE;
++		wps->wps->curr_wps_status = WPS_MSG_DONE;
+ 		return WPS_CONTINUE;
+ 	}
+ #endif /* CONFIG_WPS_NFC */
+ 
+ 	wps->state = SEND_M3;
++	wps->wps->curr_wps_status = SEND_M3;
+ 	return WPS_CONTINUE;
+ }
+ 
+@@ -1058,6 +1077,7 @@ static enum wps_process_res wps_process_m2d(struct wps_data *wps,
+ 		wpa_printf(MSG_DEBUG, "WPS: Unexpected state (%d) for "
+ 			   "receiving M2D", wps->state);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1100,6 +1120,7 @@ static enum wps_process_res wps_process_m2d(struct wps_data *wps,
+ 	}
+ 
+ 	wps->state = RECEIVED_M2D;
++	wps->wps->curr_wps_status = RECEIVED_M2D;
+ 	return WPS_CONTINUE;
+ }
+ 
+@@ -1115,16 +1136,18 @@ static enum wps_process_res wps_process_m4(struct wps_data *wps,
+ 
+ 	if (wps->state != RECV_M4) {
+ 		wpa_printf(MSG_DEBUG, "WPS: Unexpected state (%d) for "
+-			   "receiving M4", wps->state);
++				"receiving M4", wps->state);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+ 	if (wps_process_enrollee_nonce(wps, attr->enrollee_nonce) ||
+ 	    wps_process_authenticator(wps, attr->authenticator, msg) ||
+-	    wps_process_r_hash1(wps, attr->r_hash1) ||
+-	    wps_process_r_hash2(wps, attr->r_hash2)) {
++		wps_process_r_hash1(wps, attr->r_hash1) ||
++		wps_process_r_hash2(wps, attr->r_hash2)) {
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1134,12 +1157,14 @@ static enum wps_process_res wps_process_m4(struct wps_data *wps,
+ 		wpa_printf(MSG_DEBUG, "WPS: Failed to decrypted Encrypted "
+ 			   "Settings attribute");
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+ 	if (wps_validate_m4_encr(decrypted, attr->version2 != NULL) < 0) {
+ 		wpabuf_clear_free(decrypted);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1150,11 +1175,13 @@ static enum wps_process_res wps_process_m4(struct wps_data *wps,
+ 	    wps_process_r_snonce1(wps, eattr.r_snonce1)) {
+ 		wpabuf_clear_free(decrypted);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 	wpabuf_clear_free(decrypted);
+ 
+ 	wps->state = SEND_M5;
++	wps->wps->curr_wps_status = SEND_M5;
+ 	return WPS_CONTINUE;
+ }
+ 
+@@ -1170,14 +1197,16 @@ static enum wps_process_res wps_process_m6(struct wps_data *wps,
+ 
+ 	if (wps->state != RECV_M6) {
+ 		wpa_printf(MSG_DEBUG, "WPS: Unexpected state (%d) for "
+-			   "receiving M6", wps->state);
++				"receiving M6", wps->state);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+ 	if (wps_process_enrollee_nonce(wps, attr->enrollee_nonce) ||
+ 	    wps_process_authenticator(wps, attr->authenticator, msg)) {
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1185,14 +1214,16 @@ static enum wps_process_res wps_process_m6(struct wps_data *wps,
+ 					      attr->encr_settings_len);
+ 	if (decrypted == NULL) {
+ 		wpa_printf(MSG_DEBUG, "WPS: Failed to decrypted Encrypted "
+-			   "Settings attribute");
++				"Settings attribute");
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+ 	if (wps_validate_m6_encr(decrypted, attr->version2 != NULL) < 0) {
+ 		wpabuf_clear_free(decrypted);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1200,9 +1231,10 @@ static enum wps_process_res wps_process_m6(struct wps_data *wps,
+ 		   "attribute");
+ 	if (wps_parse_msg(decrypted, &eattr) < 0 ||
+ 	    wps_process_key_wrap_auth(wps, decrypted, eattr.key_wrap_auth) ||
+-	    wps_process_r_snonce2(wps, eattr.r_snonce2)) {
++		wps_process_r_snonce2(wps, eattr.r_snonce2)) {
+ 		wpabuf_clear_free(decrypted);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 	wpabuf_clear_free(decrypted);
+@@ -1212,6 +1244,7 @@ static enum wps_process_res wps_process_m6(struct wps_data *wps,
+ 				   NULL);
+ 
+ 	wps->state = SEND_M7;
++	wps->wps->curr_wps_status = SEND_M7;
+ 	return WPS_CONTINUE;
+ }
+ 
+@@ -1227,14 +1260,16 @@ static enum wps_process_res wps_process_m8(struct wps_data *wps,
+ 
+ 	if (wps->state != RECV_M8) {
+ 		wpa_printf(MSG_DEBUG, "WPS: Unexpected state (%d) for "
+-			   "receiving M8", wps->state);
++				"receiving M8", wps->state);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+ 	if (wps_process_enrollee_nonce(wps, attr->enrollee_nonce) ||
+ 	    wps_process_authenticator(wps, attr->authenticator, msg)) {
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1248,6 +1283,7 @@ static enum wps_process_res wps_process_m8(struct wps_data *wps,
+ 			   "registration of a new Registrar");
+ 		wps->config_error = WPS_CFG_SETUP_LOCKED;
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1257,6 +1293,7 @@ static enum wps_process_res wps_process_m8(struct wps_data *wps,
+ 		wpa_printf(MSG_DEBUG, "WPS: Failed to decrypted Encrypted "
+ 			   "Settings attribute");
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1264,6 +1301,7 @@ static enum wps_process_res wps_process_m8(struct wps_data *wps,
+ 				 attr->version2 != NULL) < 0) {
+ 		wpabuf_clear_free(decrypted);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1277,11 +1315,13 @@ static enum wps_process_res wps_process_m8(struct wps_data *wps,
+ 				      attr->version2 != NULL)) {
+ 		wpabuf_clear_free(decrypted);
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 	wpabuf_clear_free(decrypted);
+ 
+ 	wps->state = WPS_MSG_DONE;
++	wps->wps->curr_wps_status = WPS_MSG_DONE;
+ 	return WPS_CONTINUE;
+ }
+ 
+@@ -1306,6 +1346,7 @@ static enum wps_process_res wps_process_wsc_msg(struct wps_data *wps,
+ 	if (attr.msg_type == NULL) {
+ 		wpa_printf(MSG_DEBUG, "WPS: No Message Type attribute");
+ 		wps->state = SEND_WSC_NACK;
++		wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 		return WPS_CONTINUE;
+ 	}
+ 
+@@ -1410,6 +1451,7 @@ static enum wps_process_res wps_process_wsc_ack(struct wps_data *wps,
+ 			   "completed successfully");
+ 		wps_success_event(wps->wps, wps->peer_dev.mac_addr);
+ 		wps->state = WPS_FINISHED;
++		wps->wps->curr_wps_status = WPS_FINISHED;
+ 		return WPS_DONE;
+ 	}
+ 
+@@ -1490,6 +1532,7 @@ static enum wps_process_res wps_process_wsc_nack(struct wps_data *wps,
+ 	/* Followed by NACK if Enrollee is Supplicant or EAP-Failure if
+ 	 * Enrollee is Authenticator */
+ 	wps->state = SEND_WSC_NACK;
++	wps->wps->curr_wps_status = SEND_WSC_NACK;
+ 
+ 	return WPS_FAILURE;
+ }
+diff --git a/wpa_supplicant/ctrl_iface.c b/wpa_supplicant/ctrl_iface.c
+index 0f09fe8..0d65792 100644
+--- a/wpa_supplicant/ctrl_iface.c
++++ b/wpa_supplicant/ctrl_iface.c
+@@ -2212,6 +2212,13 @@ static int wpa_supplicant_ctrl_iface_ctrl_rsp(struct wpa_supplicant *wpa_s,
+ }
+ 
+ 
++#ifdef CONFIG_WPS
++static unsigned int get_current_wps_status(struct wpa_supplicant *wpa_s)
++{
++	return wpa_s->wps->curr_wps_status;
++}
++#endif
++
+ static int wpa_supplicant_ctrl_iface_status(struct wpa_supplicant *wpa_s,
+ 					    const char *params,
+ 					    char *buf, size_t buflen)
+@@ -2514,6 +2521,11 @@ static int wpa_supplicant_ctrl_iface_status(struct wpa_supplicant *wpa_s,
+ 		if (os_snprintf_error(end - pos, ret))
+ 			return pos - buf;
+ 		pos += ret;
++
++		ret = os_snprintf(pos, end - pos, "current WPS_STATUS=%u\n", get_current_wps_status(wpa_s));
++		if (os_snprintf_error(end - pos, ret))
++			return pos - buf;
++		pos += ret;
+ 	}
+ #endif /* CONFIG_WPS */
+ 
+diff --git a/wpa_supplicant/events.c b/wpa_supplicant/events.c
+index 10f018a..c0580ea 100644
+--- a/wpa_supplicant/events.c
++++ b/wpa_supplicant/events.c
+@@ -1765,7 +1765,7 @@ static void wpa_supplicant_req_new_scan(struct wpa_supplicant *wpa_s,
+ 	wpa_supplicant_req_scan(wpa_s, timeout_sec, timeout_usec);
+ }
+ 
+-
++#define WPS_PBC_OVERLAP_DETECTED 13
+ int wpa_supplicant_connect(struct wpa_supplicant *wpa_s,
+ 			   struct wpa_bss *selected,
+ 			   struct wpa_ssid *ssid)
+@@ -1785,6 +1785,7 @@ int wpa_supplicant_connect(struct wpa_supplicant *wpa_s,
+ 
+ #ifdef CONFIG_WPS
+ 		wpas_wps_pbc_overlap(wpa_s);
++		wpa_s->wps->curr_wps_status = WPS_PBC_OVERLAP_DETECTED;
+ 		wpas_wps_cancel(wpa_s);
+ #endif /* CONFIG_WPS */
+ 		return -1;

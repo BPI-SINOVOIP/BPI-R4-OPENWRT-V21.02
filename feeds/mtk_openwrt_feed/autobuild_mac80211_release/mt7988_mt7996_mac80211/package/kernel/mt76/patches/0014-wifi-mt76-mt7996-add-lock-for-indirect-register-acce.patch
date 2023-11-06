@@ -1,0 +1,170 @@
+From 6a8359a808df29b708b2fd2aa84c0a369be7a7d5 Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Mon, 3 Jul 2023 22:38:43 +0800
+Subject: [PATCH 14/98] wifi: mt76: mt7996: add lock for indirect register
+ access
+
+Some races were observed during indirect register access, fix this
+by adding reg_lock and reworking l1/l2 remap flow.
+
+Signed-off-by: Shayne Chen <shayne.chen@mediatek.com>
+Change-Id: I0de2cd27df9ccb7f9a7d9ce265e869175b1ca7f1
+---
+ mt7996/mmio.c   | 69 +++++++++++++++++++++++++++++++++----------------
+ mt7996/mt7996.h |  3 +--
+ 2 files changed, 48 insertions(+), 24 deletions(-)
+
+diff --git a/mt7996/mmio.c b/mt7996/mmio.c
+index c7b6d4b..ab088a2 100644
+--- a/mt7996/mmio.c
++++ b/mt7996/mmio.c
+@@ -86,7 +86,6 @@ static u32 mt7996_reg_map_l1(struct mt7996_dev *dev, u32 addr)
+ 	u32 offset = FIELD_GET(MT_HIF_REMAP_L1_OFFSET, addr);
+ 	u32 base = FIELD_GET(MT_HIF_REMAP_L1_BASE, addr);
+ 
+-	dev->reg_l1_backup = dev->bus_ops->rr(&dev->mt76, MT_HIF_REMAP_L1);
+ 	dev->bus_ops->rmw(&dev->mt76, MT_HIF_REMAP_L1,
+ 			  MT_HIF_REMAP_L1_MASK,
+ 			  FIELD_PREP(MT_HIF_REMAP_L1_MASK, base));
+@@ -101,7 +100,6 @@ static u32 mt7996_reg_map_l2(struct mt7996_dev *dev, u32 addr)
+ 	u32 offset = FIELD_GET(MT_HIF_REMAP_L2_OFFSET, addr);
+ 	u32 base = FIELD_GET(MT_HIF_REMAP_L2_BASE, addr);
+ 
+-	dev->reg_l2_backup = dev->bus_ops->rr(&dev->mt76, MT_HIF_REMAP_L2);
+ 	dev->bus_ops->rmw(&dev->mt76, MT_HIF_REMAP_L2,
+ 			  MT_HIF_REMAP_L2_MASK,
+ 			  FIELD_PREP(MT_HIF_REMAP_L2_MASK, base));
+@@ -111,26 +109,10 @@ static u32 mt7996_reg_map_l2(struct mt7996_dev *dev, u32 addr)
+ 	return MT_HIF_REMAP_BASE_L2 + offset;
+ }
+ 
+-static void mt7996_reg_remap_restore(struct mt7996_dev *dev)
+-{
+-	/* remap to ori status */
+-	if (unlikely(dev->reg_l1_backup)) {
+-		dev->bus_ops->wr(&dev->mt76, MT_HIF_REMAP_L1, dev->reg_l1_backup);
+-		dev->reg_l1_backup = 0;
+-	}
+-
+-	if (dev->reg_l2_backup) {
+-		dev->bus_ops->wr(&dev->mt76, MT_HIF_REMAP_L2, dev->reg_l2_backup);
+-		dev->reg_l2_backup = 0;
+-	}
+-}
+-
+ static u32 __mt7996_reg_addr(struct mt7996_dev *dev, u32 addr)
+ {
+ 	int i;
+ 
+-	mt7996_reg_remap_restore(dev);
+-
+ 	if (addr < 0x100000)
+ 		return addr;
+ 
+@@ -147,6 +129,11 @@ static u32 __mt7996_reg_addr(struct mt7996_dev *dev, u32 addr)
+ 		return dev->reg.map[i].mapped + ofs;
+ 	}
+ 
++	return 0;
++}
++
++static u32 __mt7996_reg_remap_addr(struct mt7996_dev *dev, u32 addr)
++{
+ 	if ((addr >= MT_INFRA_BASE && addr < MT_WFSYS0_PHY_START) ||
+ 	    (addr >= MT_WFSYS0_PHY_START && addr < MT_WFSYS1_PHY_START) ||
+ 	    (addr >= MT_WFSYS1_PHY_START && addr <= MT_WFSYS1_PHY_END))
+@@ -171,28 +158,65 @@ void mt7996_memcpy_fromio(struct mt7996_dev *dev, void *buf, u32 offset,
+ {
+ 	u32 addr = __mt7996_reg_addr(dev, offset);
+ 
+-	memcpy_fromio(buf, dev->mt76.mmio.regs + addr, len);
++	unsigned long flags;
++
++	if (addr) {
++		memcpy_fromio(buf, dev->mt76.mmio.regs + addr, len);
++		return;
++	}
++
++	spin_lock_irqsave(&dev->reg_lock, flags);
++	memcpy_fromio(buf, dev->mt76.mmio.regs +
++			   __mt7996_reg_remap_addr(dev, offset), len);
++	spin_unlock_irqrestore(&dev->reg_lock, flags);
+ }
+ 
+ static u32 mt7996_rr(struct mt76_dev *mdev, u32 offset)
+ {
+ 	struct mt7996_dev *dev = container_of(mdev, struct mt7996_dev, mt76);
++	u32 addr = __mt7996_reg_addr(dev, offset), val;
++	unsigned long flags;
++
++	if (addr)
++		return dev->bus_ops->rr(mdev, addr);
+ 
+-	return dev->bus_ops->rr(mdev, __mt7996_reg_addr(dev, offset));
++	spin_lock_irqsave(&dev->reg_lock, flags);
++	val = dev->bus_ops->rr(mdev, __mt7996_reg_remap_addr(dev, offset));
++	spin_unlock_irqrestore(&dev->reg_lock, flags);
++
++	return val;
+ }
+ 
+ static void mt7996_wr(struct mt76_dev *mdev, u32 offset, u32 val)
+ {
+ 	struct mt7996_dev *dev = container_of(mdev, struct mt7996_dev, mt76);
++	u32 addr = __mt7996_reg_addr(dev, offset);
++	unsigned long flags;
+ 
+-	dev->bus_ops->wr(mdev, __mt7996_reg_addr(dev, offset), val);
++	if (addr) {
++		dev->bus_ops->wr(mdev, addr, val);
++		return;
++	}
++
++	spin_lock_irqsave(&dev->reg_lock, flags);
++	dev->bus_ops->wr(mdev, __mt7996_reg_remap_addr(dev, offset), val);
++	spin_unlock_irqrestore(&dev->reg_lock, flags);
+ }
+ 
+ static u32 mt7996_rmw(struct mt76_dev *mdev, u32 offset, u32 mask, u32 val)
+ {
+ 	struct mt7996_dev *dev = container_of(mdev, struct mt7996_dev, mt76);
++	u32 addr = __mt7996_reg_addr(dev, offset);
++	unsigned long flags;
++
++	if (addr)
++		return dev->bus_ops->rmw(mdev, addr, mask, val);
++
++	spin_lock_irqsave(&dev->reg_lock, flags);
++	val = dev->bus_ops->rmw(mdev, __mt7996_reg_remap_addr(dev, offset), mask, val);
++	spin_unlock_irqrestore(&dev->reg_lock, flags);
+ 
+-	return dev->bus_ops->rmw(mdev, __mt7996_reg_addr(dev, offset), mask, val);
++	return val;
+ }
+ 
+ int mt7996_mmio_wed_init(struct mt7996_dev *dev, void *pdev_ptr,
+@@ -341,6 +365,7 @@ static int mt7996_mmio_init(struct mt76_dev *mdev,
+ 
+ 	dev = container_of(mdev, struct mt7996_dev, mt76);
+ 	mt76_mmio_init(&dev->mt76, mem_base);
++	spin_lock_init(&dev->reg_lock);
+ 
+ 	switch (device_id) {
+ 	case 0x7990:
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index c8e7a33..c0ceef0 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -309,8 +309,7 @@ struct mt7996_dev {
+ 		u8 n_agrt;
+ 	} twt;
+ 
+-	u32 reg_l1_backup;
+-	u32 reg_l2_backup;
++	spinlock_t reg_lock;
+ 
+ 	u8 wtbl_size_group;
+ };
+-- 
+2.18.0
+

@@ -1,0 +1,72 @@
+From 2d7f3506aa6759fa1a7667d53bf88eb543035c33 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Mon, 24 Jul 2023 16:32:03 +0800
+Subject: [PATCH 12/98] wifi: mt76: mt7996: add IEEE80211_RC_SMPS_CHANGED
+ handler
+
+Send mcu command to firmware to handle smps mode.
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt7996/mac.c    | 4 +++-
+ mt7996/mcu.c    | 8 +++++---
+ mt7996/mt7996.h | 2 ++
+ 3 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 2c6bee4..ccb7b22 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2222,7 +2222,9 @@ void mt7996_mac_sta_rc_work(struct work_struct *work)
+ 			       IEEE80211_RC_BW_CHANGED))
+ 			mt7996_mcu_add_rate_ctrl(dev, vif, sta, true);
+ 
+-		/* TODO: smps change */
++		if (changed & IEEE80211_RC_SMPS_CHANGED)
++			mt7996_mcu_set_fixed_field(dev, vif, sta, NULL,
++						   RATE_PARAM_MMPS_UPDATE);
+ 
+ 		spin_lock_bh(&dev->mt76.sta_poll_lock);
+ 	}
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index dbb3ceb..18c3f34 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -1679,9 +1679,8 @@ int mt7996_mcu_set_fixed_rate_ctrl(struct mt7996_dev *dev,
+ 				     MCU_WM_UNI_CMD(RA), true);
+ }
+ 
+-static int
+-mt7996_mcu_set_fixed_field(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+-			   struct ieee80211_sta *sta, void *data, u32 field)
++int mt7996_mcu_set_fixed_field(struct mt7996_dev *dev, struct ieee80211_vif *vif,
++			       struct ieee80211_sta *sta, void *data, u32 field)
+ {
+ 	struct mt7996_vif *mvif = (struct mt7996_vif *)vif->drv_priv;
+ 	struct mt7996_sta *msta = (struct mt7996_sta *)sta->drv_priv;
+@@ -1709,6 +1708,9 @@ mt7996_mcu_set_fixed_field(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 		if (phy)
+ 			ra->phy = *phy;
+ 		break;
++	case RATE_PARAM_MMPS_UPDATE:
++		ra->mmps_mode = mt7996_mcu_get_mmps_mode(sta->deflink.smps_mode);
++		break;
+ 	default:
+ 		break;
+ 	}
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 21ad51d..c8e7a33 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -451,6 +451,8 @@ int mt7996_mcu_add_obss_spr(struct mt7996_phy *phy, struct ieee80211_vif *vif,
+ int mt7996_mcu_add_rate_ctrl(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 			     struct ieee80211_sta *sta, bool changed);
+ int mt7996_set_channel(struct mt7996_phy *phy);
++int mt7996_mcu_set_fixed_field(struct mt7996_dev *dev, struct ieee80211_vif *vif,
++			       struct ieee80211_sta *sta, void *data, u32 field);
+ int mt7996_mcu_set_chan_info(struct mt7996_phy *phy, u16 tag);
+ int mt7996_mcu_set_tx(struct mt7996_dev *dev, struct ieee80211_vif *vif);
+ int mt7996_mcu_set_fixed_rate_ctrl(struct mt7996_dev *dev,
+-- 
+2.18.0
+

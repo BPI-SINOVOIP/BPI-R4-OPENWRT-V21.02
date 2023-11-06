@@ -1,0 +1,311 @@
+diff --git a/hostapd/Makefile b/hostapd/Makefile
+index 573d400..b2cf1eb 100644
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -43,6 +43,9 @@ CFLAGS += -DWPS_UNCONFIG_FEATURE_SUPPORT
+ 
+ # MTK MAP Macro
+ CFLAGS += -DCONFIG_MTK_MAP
++ifdef CONFIG_MTK_MAP_AKM24
++CFLAGS += -DCONFIG_MTK_MAP_AKM24
++endif
+ 
+ ifdef CONFIG_TESTING_OPTIONS
+ CFLAGS += -DCONFIG_TESTING_OPTIONS
+diff --git a/hostapd/config_file.c b/hostapd/config_file.c
+index 59218b7..373c6c9 100644
+--- a/hostapd/config_file.c
++++ b/hostapd/config_file.c
+@@ -4061,6 +4061,12 @@ static int hostapd_config_fill(struct hostapd_config *conf,
+ 		bss->multi_ap_backhaul_ssid.ssid_len = slen;
+ 		bss->multi_ap_backhaul_ssid.ssid_set = 1;
+ 		os_free(str);
++#ifdef CONFIG_MTK_MAP_AKM24
++	} else if (os_strcmp(buf, "multi_ap_backhaul_key_mgmt") == 0) {
++		bss->map_bh_key_mgmt = hostapd_config_parse_key_mgmt(line, pos);
++		if (bss->map_bh_key_mgmt == -1)
++			return 1;
++#endif /* CONFIG_MTK_MAP_AKM24 */
+ 	} else if (os_strcmp(buf, "multi_ap_backhaul_wpa_passphrase") == 0) {
+ 		int len = os_strlen(pos);
+ 
+diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
+index 1604a51..389076b 100644
+--- a/src/ap/ap_config.h
++++ b/src/ap/ap_config.h
+@@ -540,6 +540,9 @@ struct hostapd_bss_config {
+ 	struct wpabuf *wps_nfc_dh_pubkey;
+ 	struct wpabuf *wps_nfc_dh_privkey;
+ 	struct wpabuf *wps_nfc_dev_pw;
++#ifdef CONFIG_MTK_MAP_AKM24
++	int map_bh_key_mgmt;
++#endif /* CONFIG_MTK_MAP_AKM24 */
+ #endif /* CONFIG_WPS */
+ 	int pbc_in_m1;
+ 	char *server_id;
+diff --git a/src/ap/wps_hostapd.c b/src/ap/wps_hostapd.c
+index f15def3..4ed4879 100644
+--- a/src/ap/wps_hostapd.c
++++ b/src/ap/wps_hostapd.c
+@@ -1299,6 +1299,10 @@ int hostapd_init_wps(struct hostapd_data *hapd,
+ 
+ 	if ((hapd->conf->multi_ap & FRONTHAUL_BSS) &&
+ 	    hapd->conf->multi_ap_backhaul_ssid.ssid_len) {
++#ifdef CONFIG_MTK_MAP_AKM24
++		cfg.multi_ap_backhaul_key_mgmt =
++			hapd->conf->map_bh_key_mgmt;
++#endif /* CONFIG_MTK_MAP_AKM24 */
+ 		cfg.multi_ap_backhaul_ssid_len =
+ 			hapd->conf->multi_ap_backhaul_ssid.ssid_len;
+ 		cfg.multi_ap_backhaul_ssid =
+@@ -1445,11 +1449,21 @@ static int hostapd_wps_update_multi_ap(struct hostapd_data *hapd,
+ 		multi_ap_backhaul_network_key_len = 2 * PMK_LEN;
+ 	}
+ 
++#ifdef CONFIG_MTK_MAP_AKM24
++	int  multi_ap_backhaul_key_mgmt = 0;
++
++	multi_ap_backhaul_key_mgmt = conf->map_bh_key_mgmt;
++#endif /* CONFIG_MTK_MAP_AKM24 */
++
+ 	ret = wps_registrar_update_multi_ap(
+ 		reg, conf->multi_ap_backhaul_ssid.ssid,
+ 		conf->multi_ap_backhaul_ssid.ssid_len,
+ 		multi_ap_backhaul_network_key,
+-		multi_ap_backhaul_network_key_len);
++		multi_ap_backhaul_network_key_len
++#ifdef CONFIG_MTK_MAP_AKM24
++		,  multi_ap_backhaul_key_mgmt
++#endif /* CONFIG_MTK_MAP_AKM24 */
++		);
+ 	os_free(multi_ap_backhaul_network_key);
+ 
+ 	return ret;
+diff --git a/src/wps/wps.h b/src/wps/wps.h
+index cea0a4b..ecccb74 100644
+--- a/src/wps/wps.h
++++ b/src/wps/wps.h
+@@ -437,6 +437,17 @@ struct wps_registrar_config {
+ 	 * multi_ap_backhaul_network_key in octets
+ 	 */
+ 	size_t multi_ap_backhaul_network_key_len;
++	/**
++	 * multi_ap_backhaul_key_mgmt - The akm to be supplied for the
++	 * Multi-AP backhaul enrollee.
++	 *
++	 * This key mgmt is used by the Registrar to fill in information for
++	 * Credentials when the enrollee advertises it is a Multi-AP backhaul
++	 * STA.
++	 */
++#ifdef CONFIG_MTK_MAP_AKM24
++	int multi_ap_backhaul_key_mgmt;
++#endif /* CONFIG_MTK_MAP_AKM24 */
+ };
+ 
+ 
+@@ -885,7 +896,11 @@ int wps_registrar_update_multi_ap(struct wps_registrar *reg,
+ 				  const u8 *multi_ap_backhaul_ssid,
+ 				  size_t multi_ap_backhaul_ssid_len,
+ 				  const u8 *multi_ap_backhaul_network_key,
+-				  size_t multi_ap_backhaul_network_key_len);
++				  size_t multi_ap_backhaul_network_key_len
++#ifdef CONFIG_MTK_MAP_AKM24
++				, int multi_ap_backhaul_key_mgmt
++#endif /* CONFIG_MTK_MAP_AKM24 */
++				);
+ 
+ int wps_build_credential_wrap(struct wpabuf *msg,
+ 			      const struct wps_credential *cred);
+diff --git a/src/wps/wps_defs.h b/src/wps/wps_defs.h
+index 5d6e96f..efea4b3 100644
+--- a/src/wps/wps_defs.h
++++ b/src/wps/wps_defs.h
+@@ -199,6 +199,10 @@ enum wps_msg_type {
+ #define WPS_AUTH_WPA2 0x0010
+ #define WPS_AUTH_WPA2PSK 0x0020
+ #define WPS_AUTH_WPA3PSK 0x0040
++#if defined(CONFIG_MTK_MAP_AKM24) || defined(CONFIG_MTK_MAP_SAE_EXT_KEY)
++#define WPS_AUTH_SAE_EXT_KEY 0x0100
++#define WPS_AUTH_SAE_SAE_EXT_MIXED (WPS_AUTH_SAE_EXT_KEY | WPS_AUTH_WPA3PSK)
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY | CONFIG_MTK_MAP_AKM24 */
+ #define WPS_AUTH_MIXED (WPS_AUTH_WPA2PSK | WPS_AUTH_WPA3PSK)
+ #define WPS_AUTH_TYPES (WPS_AUTH_OPEN | WPS_AUTH_WPAPSK | WPS_AUTH_SHARED | \
+ 			WPS_AUTH_WPA | WPS_AUTH_WPA2 | WPS_AUTH_WPA2PSK | WPS_AUTH_WPA3PSK)
+diff --git a/src/wps/wps_registrar.c b/src/wps/wps_registrar.c
+index 2df534e..26de392 100644
+--- a/src/wps/wps_registrar.c
++++ b/src/wps/wps_registrar.c
+@@ -224,6 +224,13 @@ struct wps_registrar {
+ 	 * multi_ap_backhaul_network_key in octets
+ 	 */
+ 	size_t multi_ap_backhaul_network_key_len;
++	/**
++	 * multi_ap_backhaul_key_mgmt -  key mgmt to supply to a Multi-AP backhaul
++	 * enrollee.
++	 */
++#ifdef CONFIG_MTK_MAP_AKM24
++	int multi_ap_backhaul_key_mgmt;
++#endif /* CONFIG_MTK_MAP_AKM24 */
+ };
+ 
+ 
+@@ -719,6 +726,10 @@ wps_registrar_init(struct wps_context *wps,
+ 				cfg->multi_ap_backhaul_network_key_len;
+ 	}
+ 
++#ifdef CONFIG_MTK_MAP_AKM24
++	reg->multi_ap_backhaul_key_mgmt =
++		cfg->multi_ap_backhaul_key_mgmt;
++#endif /* CONFIG_MTK_MAP_AKM24 */
+ 	if (wps_set_ie(reg)) {
+ 		wps_registrar_deinit(reg);
+ 		return NULL;
+@@ -1671,8 +1682,17 @@ int wps_build_cred(struct wps_data *wps, struct wpabuf *msg)
+ 		os_memcpy(wps->cred.ssid, reg->multi_ap_backhaul_ssid,
+ 			  reg->multi_ap_backhaul_ssid_len);
+ 		wps->cred.ssid_len = reg->multi_ap_backhaul_ssid_len;
++#ifdef CONFIG_MTK_MAP_AKM24
++		if (reg->multi_ap_backhaul_key_mgmt & WPA_KEY_MGMT_SAE_EXT_KEY) {
++			wps->cred.auth_type = WPS_AUTH_SAE_EXT_KEY;
++			if (reg->multi_ap_backhaul_key_mgmt & WPA_KEY_MGMT_SAE)
++				wps->cred.auth_type |= WPS_AUTH_WPA3PSK;
++		} else
++			wps->cred.auth_type = WPS_AUTH_WPA2PSK;
++#else
+ 		/* Backhaul is always WPA2PSK */
+ 		wps->cred.auth_type = WPS_AUTH_WPA2PSK;
++#endif /* CONFIG_MTK_MAP_AKM24 */
+ 		wps->cred.encr_type = WPS_ENCR_AES;
+ 		/* Set MAC address in the Credential to be the Enrollee's MAC
+ 		 * address
+@@ -3735,7 +3755,11 @@ int wps_registrar_update_multi_ap(struct wps_registrar *reg,
+ 				  const u8 *multi_ap_backhaul_ssid,
+ 				  size_t multi_ap_backhaul_ssid_len,
+ 				  const u8 *multi_ap_backhaul_network_key,
+-				  size_t multi_ap_backhaul_network_key_len)
++				  size_t multi_ap_backhaul_network_key_len
++#ifdef CONFIG_MTK_MAP_AKM24
++				, int multi_ap_backhaul_key_mgmt
++#endif /* CONFIG_MTK_MAP_AKM24 */
++				)
+ {
+ 	if (multi_ap_backhaul_ssid) {
+ 		os_memcpy(reg->multi_ap_backhaul_ssid,
+@@ -3756,6 +3780,10 @@ int wps_registrar_update_multi_ap(struct wps_registrar *reg,
+ 			multi_ap_backhaul_network_key_len;
+ 	}
+ 
++#ifdef CONFIG_MTK_MAP_AKM24
++	reg->multi_ap_backhaul_key_mgmt = multi_ap_backhaul_key_mgmt;
++#endif /* CONFIG_MTK_MAP_AKM24 */
++
+ 	return 0;
+ }
+ 
+diff --git a/wpa_supplicant/ubus.c b/wpa_supplicant/ubus.c
+index 324d829..32269f7 100644
+--- a/wpa_supplicant/ubus.c
++++ b/wpa_supplicant/ubus.c
+@@ -376,7 +376,12 @@ void wpas_ubus_notify(struct wpa_supplicant *wpa_s, const struct wps_credential
+ 	    auth_type != WPS_AUTH_WPAPSK &&
+ 		auth_type != WPS_AUTH_WPA2PSK &&
+ 		auth_type != WPS_AUTH_WPA3PSK &&
+-		auth_type != WPS_AUTH_MIXED) {
++		auth_type != WPS_AUTH_MIXED
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++		&& auth_type != WPS_AUTH_SAE_EXT_KEY
++		&& auth_type != WPS_AUTH_SAE_SAE_EXT_MIXED
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY */
++	) {
+ 		wpa_printf(MSG_DEBUG, "WPS: Ignored credentials for "
+ 			   "unsupported authentication type 0x%x",
+ 			   auth_type);
+diff --git a/wpa_supplicant/wpa_supplicant.c b/wpa_supplicant/wpa_supplicant.c
+index 9ea1db5..cfc9df4 100644
+--- a/wpa_supplicant/wpa_supplicant.c
++++ b/wpa_supplicant/wpa_supplicant.c
+@@ -8140,7 +8140,11 @@ int wpas_network_disabled(struct wpa_supplicant *wpa_s, struct wpa_ssid *ssid)
+ 	if (wpa_key_mgmt_wpa_psk(ssid->key_mgmt) && !ssid->psk_set &&
+ 	    (!ssid->passphrase || ssid->ssid_len != 0) && !ssid->ext_psk &&
+ 	    !(wpa_key_mgmt_sae(ssid->key_mgmt) && ssid->sae_password) &&
+-	    !ssid->mem_only_psk)
++	    !ssid->mem_only_psk
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++		&& !(wpa_key_mgmt_sae_ext_key(ssid->key_mgmt))
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY */
++	)
+ 		return 1;
+ 
+ #ifdef IEEE8021X_EAPOL
+diff --git a/wpa_supplicant/wps_supplicant.c b/wpa_supplicant/wps_supplicant.c
+index 2d2540e..0fce222 100644
+--- a/wpa_supplicant/wps_supplicant.c
++++ b/wpa_supplicant/wps_supplicant.c
+@@ -430,7 +430,12 @@ static int wpa_supplicant_wps_cred(void *ctx,
+ 	    auth_type != WPS_AUTH_WPAPSK &&
+ 		auth_type != WPS_AUTH_WPA2PSK &&
+ 		auth_type != WPS_AUTH_WPA3PSK &&
+-		auth_type != WPS_AUTH_MIXED) {
++		auth_type != WPS_AUTH_MIXED
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++		&& auth_type != WPS_AUTH_SAE_EXT_KEY
++		&& auth_type != WPS_AUTH_SAE_SAE_EXT_MIXED
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY */
++		) {
+ 		wpa_printf(MSG_DEBUG, "WPS: Ignored credentials for "
+ 			   "unsupported authentication type 0x%x",
+ 			   auth_type);
+@@ -438,7 +443,12 @@ static int wpa_supplicant_wps_cred(void *ctx,
+ 	}
+ 
+ 	if (auth_type == WPS_AUTH_WPAPSK || auth_type == WPS_AUTH_WPA2PSK
+-		|| auth_type == WPS_AUTH_WPA3PSK || auth_type == WPS_AUTH_MIXED) {
++		|| auth_type == WPS_AUTH_WPA3PSK || auth_type == WPS_AUTH_MIXED
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++		|| auth_type == WPS_AUTH_SAE_EXT_KEY
++		|| auth_type == WPS_AUTH_SAE_SAE_EXT_MIXED
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY */
++	) {
+ 		if (cred->key_len < 8 || cred->key_len > 2 * PMK_LEN) {
+ 			wpa_printf(MSG_ERROR, "WPS: Reject PSK credential with "
+ 				   "invalid Network Key length %lu",
+@@ -577,6 +587,26 @@ static int wpa_supplicant_wps_cred(void *ctx,
+ 		ssid->key_mgmt = WPA_KEY_MGMT_PSK | WPA_KEY_MGMT_SAE;
+ 		ssid->ieee80211w = MGMT_FRAME_PROTECTION_OPTIONAL;
+ 		break;
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++	case WPS_AUTH_SAE_EXT_KEY:
++		if (cred->key_len != 2 * PMK_LEN) {
++			ssid->auth_alg = 0;
++			ssid->key_mgmt = WPA_KEY_MGMT_SAE_EXT_KEY;
++			ssid->ieee80211w = MGMT_FRAME_PROTECTION_OPTIONAL;
++			ssid->proto = WPA_PROTO_RSN;
++		}
++
++		break;
++	case WPS_AUTH_SAE_SAE_EXT_MIXED:
++		if (cred->key_len != 2 * PMK_LEN) {
++			ssid->auth_alg = 0;
++			ssid->key_mgmt = WPA_KEY_MGMT_SAE | WPA_KEY_MGMT_SAE_EXT_KEY;
++			ssid->ieee80211w = MGMT_FRAME_PROTECTION_OPTIONAL;
++			ssid->proto = WPA_PROTO_RSN;
++		}
++
++		break;
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY */
+ 	}
+ 
+ 	if (ssid->key_mgmt & WPA_KEY_MGMT_PSK) {
+@@ -606,7 +636,11 @@ static int wpa_supplicant_wps_cred(void *ctx,
+ 		}
+ 	}
+ 
+-	if (ssid->key_mgmt & WPA_KEY_MGMT_SAE) {
++	if (ssid->key_mgmt & WPA_KEY_MGMT_SAE
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++		|| (ssid->key_mgmt & WPA_KEY_MGMT_SAE_EXT_KEY)
++#endif /*CONFIG_MTK_MAP_SAE_EXT_KEY */
++	) {
+ 		if (cred->key_len == 2 * PMK_LEN) {
+ 			if (hexstr2bin((const char *) cred->key, ssid->psk,
+ 						PMK_LEN)) {

@@ -1,0 +1,85 @@
+diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
+index 69b7779..3f14090 100644
+--- a/src/ap/ctrl_iface_ap.c
++++ b/src/ap/ctrl_iface_ap.c
+@@ -1241,6 +1241,7 @@ int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
+ 
+ 	hostapd_neighbor_set_own_report_pref(hapd, nei_rep, nei_len, 0);
+ #ifdef CONFIG_MBO
++	hostapd_neighbor_set_pref_by_non_pref_chan(hapd, sta, nei_rep, nei_len);
+ 
+ 	pos = os_strstr(cmd, "mbo=");
+ 	if (pos) {
+diff --git a/src/ap/neighbor_db.c b/src/ap/neighbor_db.c
+index 1c6e4c7..ddb0d65 100644
+--- a/src/ap/neighbor_db.c
++++ b/src/ap/neighbor_db.c
+@@ -396,3 +396,55 @@ void hostapd_neighbor_set_own_report_pref(struct hostapd_data *hapd, char *nei_b
+ 			continue;
+ 	}
+ }
++
++#ifdef CONFIG_MBO
++void hostapd_neighbor_set_pref_by_non_pref_chan(struct hostapd_data *hapd,
++		struct sta_info* sta, char *nei_buf, size_t buflen)
++{
++	struct mbo_non_pref_chan_info *info;
++	u8 i;
++
++	for (info = sta->non_pref_chan; info; info = info->next) {
++		/* Check OP_Class and Channel num */
++		for (i = 0; i < info->num_channels; i++) {
++			char *pos, *next_nr, *buf_len, *buff;
++			int shift_len = 0;
++
++			pos = nei_buf;
++			buff = nei_buf;
++			next_nr = nei_buf;
++			buff = buff + buflen;
++			/* Iterate Neighbor report buffer */
++			while (buff - pos >= 0) {
++				pos = next_nr;
++				buf_len = pos + 1;
++				shift_len = *buf_len;
++				next_nr = pos + 2 + shift_len;
++				/**
++				 * Shift 12 bytes for Element ID, Neighbor report length,
++				 * BSSID and BSSID info.
++				 */
++				pos = pos + 12;
++				int nr_op_class = *pos++;
++				int nr_channel = *pos;
++				if (info->op_class == nr_op_class && info->channels[i] == nr_channel) {
++					/* Shift for Channel Num + PHY type */
++					pos = pos + 1 + 1;
++					/* Iterate Subelement */
++					while (next_nr - pos > 0) {
++						if (*pos == 3) {
++							pos = pos + 2;
++							*pos = info->pref;
++							break;
++						} else {
++							pos++;
++							shift_len = *pos++;
++							pos = pos + shift_len;
++						}
++					}
++				}
++			}
++		}
++	}
++}
++#endif
+diff --git a/src/ap/neighbor_db.h b/src/ap/neighbor_db.h
+index af73167..96d1b4a 100644
+--- a/src/ap/neighbor_db.h
++++ b/src/ap/neighbor_db.h
+@@ -26,4 +26,8 @@ void hostapd_free_neighbor_db(struct hostapd_data *hapd);
+ 
+ void hostapd_neighbor_set_own_report_pref(struct hostapd_data *hapd, char *nei_buf,
+ 		                size_t buflen, const int pref);
++#ifdef CONFIG_MBO
++void hostapd_neighbor_set_pref_by_non_pref_chan(struct hostapd_data *hapd,
++		struct sta_info* sta, char *nei_buf, size_t buflen);
++#endif
+ #endif /* NEIGHBOR_DB_H */

@@ -1,0 +1,126 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ft.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+@@ -33,6 +33,8 @@
+ #include "hostapd.h"
+ #include "wpa_auth_ie.h"
+ 
++extern u8 ml_get_link_id(struct wpa_state_machine *sm);
++
+ #define STATE_MACHINE_ML_GROUP \
+ 	(((struct hostapd_data *)sm->wpa_auth->cb_ctx)->ml_group)
+ #endif
+@@ -3306,7 +3308,7 @@ u8 * wpa_sm_write_assoc_resp_ies(struct
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 			   parse.mlie ? parse.mlie : NULL,
+ 			   parse.mlie ? parse.mlie_len : 0,
+-			   sm->wpa_auth->addr, 1, hapd->ml_group,
++			   0, sm->wpa_auth->addr, 1, hapd->ml_group,
+ #endif
+ 		       fte_mic) < 0) {
+ 		wpa_printf(MSG_DEBUG, "FT: Failed to calculate MIC");
+@@ -3909,6 +3911,9 @@ int wpa_ft_validate_reassoc(struct wpa_s
+ 	u8 fte_elem_count;
+ 	int rsnxe_used;
+ 	struct wpa_auth_config *conf;
++#ifdef CONFIG_MTK_IEEE80211BE
++	u8 setup_link_id;
++#endif
+ 
+ 	if (sm == NULL)
+ 		return WLAN_STATUS_UNSPECIFIED_FAILURE;
+@@ -4057,6 +4062,12 @@ int wpa_ft_validate_reassoc(struct wpa_s
+ 		kck = sm->PTK.kck;
+ 		kck_len = sm->PTK.kck_len;
+ 	}
++
++#ifdef CONFIG_MTK_IEEE80211BE
++	if (sm->wpa_auth && sm->wpa_auth->cb_ctx && STATE_MACHINE_ML_GROUP)
++		setup_link_id = ml_get_link_id(sm);
++#endif
++
+ 	if (wpa_ft_mic(conf->wpa_key_mgmt, kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 5,
+ 		       parse.mdie - 2, parse.mdie_len + 2,
+ 		       parse.ftie - 2, parse.ftie_len + 2,
+@@ -4067,7 +4078,7 @@ int wpa_ft_validate_reassoc(struct wpa_s
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 			   parse.mlie ? parse.mlie : NULL,
+ 			   parse.mlie ? parse.mlie_len : 0,
+-			   sm->addr, 0, NULL,
++			   setup_link_id, sm->addr, 0, NULL,
+ #endif
+ 		       mic) < 0) {
+ 		wpa_printf(MSG_DEBUG, "FT: Failed to calculate MIC");
+Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.c
++++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+@@ -921,8 +921,8 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 	       const u8 *ric, size_t ric_len,
+ 	       const u8 *rsnxe, size_t rsnxe_len,
+ #ifdef CONFIG_MTK_IEEE80211BE
+-		   const u8 *mlie, size_t mlie_len, const u8 *main_link_addr,
+-		   u8 tx_reassoc_rsp, struct wpa_ml_group *ml_group,
++		   const u8 *mlie, size_t mlie_len, const u8 setup_link_id,
++		   const u8 *main_link_addr, u8 tx_reassoc_rsp, struct wpa_ml_group *ml_group,
+ #endif
+ 	       u8 *mic)
+ {
+@@ -960,6 +960,23 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 			wpa_printf(MSG_INFO, "FT: ml_info.link_id = %d",
+ 					ml_info.link_id);
+ 
++			if (!ml_info.link_id) {
++				wpa_printf(MSG_INFO, "FT: setup_link_id = %d",
++					setup_link_id);
++				if (setup_link_id && setup_link_id != 0xff) {
++					valid_links &= ~(BIT(ml_info.link_id));
++
++					ml_info.link_id = setup_link_id;
++
++					link_addr[ml_info.link_id] = main_link_addr;
++					link_rsne[ml_info.link_id] = rsnie;
++					link_rsne_len[ml_info.link_id] = rsnie_len;
++					link_rsnxe[ml_info.link_id] = rsnxe;
++					link_rsnxe_len[ml_info.link_id] = rsnxe_len;
++					valid_links |= BIT(ml_info.link_id);
++				}
++			}
++
+ 			if (!tx_reassoc_rsp) {
+ 				for (i = 0; i < ml_info.prof_num; i++) {
+ 					struct ieee802_11_elems elems;
+Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.h
++++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.h
+@@ -470,6 +470,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 	       const u8 *rsnxe, size_t rsnxe_len,
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 		   const u8 *mlie, size_t mlie_len,
++		   const u8 setup_link_id,
+ 		   const u8 *main_link_addr, 
+ 		   u8 tx_reassoc_rsp,
+ 		   struct wpa_ml_group *ml_group,
+Index: hostapd-2022-07-29-b704dc72/src/rsn_supp/wpa_ft.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/rsn_supp/wpa_ft.c
++++ hostapd-2022-07-29-b704dc72/src/rsn_supp/wpa_ft.c
+@@ -439,6 +439,7 @@ static u8 * wpa_ft_gen_req_ies(struct wp
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 				   NULL,
+ 				   0,
++				   0,
+ 				   NULL,
+ 				   0,
+ 				   NULL,
+@@ -1141,7 +1142,7 @@ int wpa_ft_validate_reassoc_resp(struct
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 			   parse.mlie ? parse.mlie: NULL,
+ 			   parse.mlie ? parse.mlie_len : 0,
+-			   src_addr, 0, NULL,
++			   0, src_addr, 0, NULL,
+ #endif
+ 		       mic) < 0) {
+ 		wpa_printf(MSG_DEBUG, "FT: Failed to calculate MIC");

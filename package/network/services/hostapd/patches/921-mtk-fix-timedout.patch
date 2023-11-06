@@ -1,0 +1,13 @@
+Index: hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/common/wpa_ctrl.c
++++ hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.c
+@@ -544,7 +544,7 @@ retry_send:
+ 	os_free(cmd_buf);
+ 
+ 	os_get_reltime(&ending_at);
+-	ending_at.sec += 10;
++	ending_at.sec += 60;
+ 
+ 	for (;;) {
+ 		struct os_reltime diff;

@@ -1,0 +1,164 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.c
++++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
+@@ -2171,6 +2171,16 @@ static int hostapd_setup_interface_compl
+ 
+ 	hostapd_ubus_add_iface(iface);
+ 	wpa_printf(MSG_DEBUG, "Completing interface initialization");
++
++#ifdef CONFIG_MTK_IEEE80211BE
++	for (j = 0; j < iface->num_bss; j++) {
++		hapd = iface->bss[j];
++
++		if (hapd->driver && hapd->driver->get_bss_mlo_info)
++			hapd->driver->get_bss_mlo_info(hapd->drv_priv);
++	}
++#endif
++
+ 	if (iface->freq) {
+ #ifdef NEED_AP_MLME
+ 		int res;
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver.h
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+@@ -4702,6 +4702,17 @@ struct wpa_driver_ops {
+ 			      const u8 *match, size_t match_len,
+ 			      bool multicast);
+ #endif /* CONFIG_TESTING_OPTIONS */
++
++#ifdef CONFIG_MTK_IEEE80211BE
++	/**
++	 * get_bss_mlo_info - Get MLO info for the specified interface
++	 * @priv: Private driver interface data
++	 * Returns: 0 on success, -1 on failure
++	 *
++	 * This optional callback can be used to get MLO info when setup bss.
++	 */
++	int (*get_bss_mlo_info)(void *priv);
++#endif
+ };
+ 
+ /**
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver_nl80211.c
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
+@@ -6938,6 +6938,99 @@ static int wpa_driver_nl80211_get_capa(v
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_MTK_IEEE80211BE
++static int bss_mlo_info_handler(struct nl_msg *msg, void *arg)
++{
++	struct nlattr *tb[NL80211_ATTR_MAX + 1];
++	struct nlattr *sub_tb[MTK_NL80211_VENDOR_ATTR_BSS_MLO_INFO_ATTR_MAX + 1];
++	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
++	struct bss_mlo_info *param = arg;
++	int ret;
++
++	if (gnlh->cmd != NL80211_CMD_VENDOR)
++		return NL_SKIP;
++
++	ret = nla_parse(tb, NL80211_ATTR_MAX, genlmsg_attrdata(gnlh, 0),
++		  genlmsg_attrlen(gnlh, 0), NULL);
++	if (ret)
++		return NL_SKIP;
++
++	if (!tb[NL80211_ATTR_VENDOR_DATA])
++		return NL_SKIP;
++
++	ret = nla_parse_nested(sub_tb, MTK_NL80211_VENDOR_ATTR_BSS_MLO_INFO_ATTR_MAX,
++							tb[NL80211_ATTR_VENDOR_DATA], NULL);
++	if (ret)
++		return NL_SKIP;
++
++	if (sub_tb[MTK_NL80211_VENDOR_ATTR_BSS_MLO_INFO]) {
++		if ((size_t) nla_len(sub_tb[MTK_NL80211_VENDOR_ATTR_BSS_MLO_INFO])
++			!= sizeof(struct bss_mlo_info)) {
++			wpa_printf(MSG_INFO, "nl80211: insufficient buffer space");
++			return NL_SKIP;
++		}
++
++		os_memcpy(param, nla_data(sub_tb[MTK_NL80211_VENDOR_ATTR_BSS_MLO_INFO]),
++					nla_len(sub_tb[MTK_NL80211_VENDOR_ATTR_BSS_MLO_INFO]));
++	}
++
++	wpa_printf(MSG_INFO, "bss_mlo_info_handler, mld_grp_idx=%d, link_id=%d",
++				param->mld_grp_idx, param->link_id);
++
++	return NL_SKIP;
++}
++
++static int nl80211_get_bss_mlo_info(struct wpa_driver_nl80211_data *drv, struct i802_bss *bss)
++{
++	struct nl_msg *msg = NULL;
++	struct bss_mlo_info data = {0};
++	union wpa_event_data event = {0};
++	void *attr;
++	int ret;
++
++	wpa_printf(MSG_INFO, "nl80211_get_bss_mlo_info");
++
++	if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
++		nla_put_u32(msg, NL80211_ATTR_VENDOR_ID, MTK_NL80211_VENDOR_ID) ||
++		nla_put_u32(msg, NL80211_ATTR_VENDOR_SUBCMD, MTK_NL80211_VENDOR_SUBCMD_GET_BSS_MLO_INFO)) {
++		nlmsg_free(msg);
++		return -1;
++	}
++
++	attr = nla_nest_start(msg, NL80211_ATTR_VENDOR_DATA);
++	if (!attr)
++		return -1;
++
++	if (nla_put_flag(msg, MTK_NL80211_VENDOR_ATTR_BSS_MLO_INFO))
++		return -1;
++
++	nla_nest_end(msg, attr);
++
++	ret = send_and_recv_msgs(drv, msg, bss_mlo_info_handler, &data,
++				  NULL, NULL);
++	if (ret)
++		wpa_printf(MSG_DEBUG, "nl80211: get bss mlo info vendor command failed err=%d", ret);
++	else if (data.mld_grp_idx != 0 && !is_zero_ether_addr(data.addr)) {
++		event.ml_info_event.link_cnt = data.link_cnt;
++		event.ml_info_event.mld_grp_idx = data.mld_grp_idx;
++		event.ml_info_event.link_id = data.link_id;
++		memcpy(event.ml_info_event.addr, data.addr, ETH_ALEN);
++		wpa_supplicant_event(bss->ctx, EVENT_UPDATE_BSS_ML_INFO, (union wpa_event_data *)&event);
++	}
++
++	return ret;
++}
++
++static int wpa_driver_nl80211_get_bss_mlo_info(void *priv)
++{
++	struct i802_bss *bss = priv;
++	struct wpa_driver_nl80211_data *drv = bss->drv;
++
++	wpa_printf(MSG_DEBUG, "nl80211: Sync %s mlo info", bss->ifname);
++
++	return nl80211_get_bss_mlo_info(drv, bss);
++}
++#endif
+ 
+ static int wpa_driver_nl80211_set_operstate(void *priv, int state)
+ {
+@@ -8510,7 +8603,7 @@ static int wpa_driver_nl80211_probe_req_
+ 	if (!report) {
+ 
+ 			/*
+-			 *for virtual bss is being removing, we are force to 
++			 *for virtual bss is being removing, we are force to
+ 			 *clear it's probe req report
+ 			*/
+ 		if (bss->nl_preq && drv->device_ap_sme &&
+@@ -12589,4 +12682,7 @@ const struct wpa_driver_ops wpa_driver_n
+ 	.register_frame = testing_nl80211_register_frame,
+ 	.radio_disable = testing_nl80211_radio_disable,
+ #endif /* CONFIG_TESTING_OPTIONS */
++#ifdef CONFIG_MTK_IEEE80211BE
++	.get_bss_mlo_info = wpa_driver_nl80211_get_bss_mlo_info,
++#endif
+ };

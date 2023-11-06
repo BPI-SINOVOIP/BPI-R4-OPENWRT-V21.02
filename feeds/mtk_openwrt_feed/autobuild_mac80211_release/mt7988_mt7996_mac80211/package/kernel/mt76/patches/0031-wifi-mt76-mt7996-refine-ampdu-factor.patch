@@ -1,0 +1,111 @@
+From 274d96dc00990390f4e830452d9032471deacf33 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Fri, 6 Oct 2023 11:44:03 +0800
+Subject: [PATCH 31/98] wifi: mt76: mt7996: refine ampdu factor
+
+Firmware would parse ht/vht/he/eht cap to get correct ampdu parameters.
+---
+ mt76_connac_mcu.h |  4 +++-
+ mt7996/mcu.c      | 44 ++++----------------------------------------
+ mt7996/mcu.h      |  1 -
+ 3 files changed, 7 insertions(+), 42 deletions(-)
+
+diff --git a/mt76_connac_mcu.h b/mt76_connac_mcu.h
+index 6fac67b..ca2e573 100644
+--- a/mt76_connac_mcu.h
++++ b/mt76_connac_mcu.h
+@@ -298,7 +298,9 @@ struct sta_rec_ht {
+ 	__le16 tag;
+ 	__le16 len;
+ 	__le16 ht_cap;
+-	u16 rsv;
++	__le16 ht_cap_ext;
++	u8 ampdu_param;
++	u8 _rsv[3];
+ } __packed;
+ 
+ struct sta_rec_vht {
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 60af1d4..8b81644 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -1195,6 +1195,10 @@ mt7996_mcu_sta_ht_tlv(struct sk_buff *skb, struct ieee80211_sta *sta)
+ 
+ 	ht = (struct sta_rec_ht *)tlv;
+ 	ht->ht_cap = cpu_to_le16(sta->deflink.ht_cap.cap);
++	ht->ampdu_param = u8_encode_bits(sta->deflink.ht_cap.ampdu_factor,
++					 IEEE80211_HT_AMPDU_PARM_FACTOR) |
++			  u8_encode_bits(sta->deflink.ht_cap.ampdu_density,
++					 IEEE80211_HT_AMPDU_PARM_DENSITY);
+ }
+ 
+ static void
+@@ -1651,44 +1655,6 @@ mt7996_mcu_sta_bfee_tlv(struct mt7996_dev *dev, struct sk_buff *skb,
+ 	bfee->fb_identity_matrix = (nrow == 1 && tx_ant == 2);
+ }
+ 
+-static void
+-mt7996_mcu_sta_phy_tlv(struct mt7996_dev *dev, struct sk_buff *skb,
+-		       struct ieee80211_vif *vif, struct ieee80211_sta *sta)
+-{
+-	struct sta_rec_phy *phy;
+-	struct tlv *tlv;
+-	u8 af = 0, mm = 0;
+-
+-	if (!sta->deflink.ht_cap.ht_supported && !sta->deflink.he_6ghz_capa.capa)
+-		return;
+-
+-	tlv = mt76_connac_mcu_add_tlv(skb, STA_REC_PHY, sizeof(*phy));
+-
+-	phy = (struct sta_rec_phy *)tlv;
+-	if (sta->deflink.ht_cap.ht_supported) {
+-		af = sta->deflink.ht_cap.ampdu_factor;
+-		mm = sta->deflink.ht_cap.ampdu_density;
+-	}
+-
+-	if (sta->deflink.vht_cap.vht_supported) {
+-		u8 vht_af = FIELD_GET(IEEE80211_VHT_CAP_MAX_A_MPDU_LENGTH_EXPONENT_MASK,
+-				      sta->deflink.vht_cap.cap);
+-
+-		af = max_t(u8, af, vht_af);
+-	}
+-
+-	if (sta->deflink.he_6ghz_capa.capa) {
+-		af = le16_get_bits(sta->deflink.he_6ghz_capa.capa,
+-				   IEEE80211_HE_6GHZ_CAP_MAX_AMPDU_LEN_EXP);
+-		mm = le16_get_bits(sta->deflink.he_6ghz_capa.capa,
+-				   IEEE80211_HE_6GHZ_CAP_MIN_MPDU_START);
+-	}
+-
+-	phy->ampdu = FIELD_PREP(IEEE80211_HT_AMPDU_PARM_FACTOR, af) |
+-		     FIELD_PREP(IEEE80211_HT_AMPDU_PARM_DENSITY, mm);
+-	phy->max_ampdu_len = af;
+-}
+-
+ static void
+ mt7996_mcu_sta_hdrt_tlv(struct mt7996_dev *dev, struct sk_buff *skb)
+ {
+@@ -2100,8 +2066,6 @@ int mt7996_mcu_add_sta(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 
+ 	/* tag order is in accordance with firmware dependency. */
+ 	if (sta) {
+-		/* starec phy */
+-		mt7996_mcu_sta_phy_tlv(dev, skb, vif, sta);
+ 		/* starec hdrt mode */
+ 		mt7996_mcu_sta_hdrt_tlv(dev, skb);
+ 		/* starec bfer */
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index af7cd18..ca16336 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -730,7 +730,6 @@ enum {
+ 					 sizeof(struct sta_rec_uapsd) + 	\
+ 					 sizeof(struct sta_rec_amsdu) +		\
+ 					 sizeof(struct sta_rec_bfee) +		\
+-					 sizeof(struct sta_rec_phy) +		\
+ 					 sizeof(struct sta_rec_ra_uni) +	\
+ 					 sizeof(struct sta_rec_sec) +		\
+ 					 sizeof(struct sta_rec_ra_fixed_uni) +	\
+-- 
+2.18.0
+

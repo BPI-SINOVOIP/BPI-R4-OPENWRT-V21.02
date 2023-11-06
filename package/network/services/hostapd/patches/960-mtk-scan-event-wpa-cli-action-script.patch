@@ -1,0 +1,13 @@
+diff --git a/wpa_supplicant/wpa_cli.c b/wpa_supplicant/wpa_cli.c
+index b196246..cf94a04 100644
+--- a/wpa_supplicant/wpa_cli.c
++++ b/wpa_supplicant/wpa_cli.c
+@@ -4420,7 +4420,7 @@ static void wpa_cli_action_process(const char *msg)
+ 	} else if (str_starts(pos, WPA_EVENT_SCAN_STARTED)) {
+ 		wpa_cli_exec(action_file, ifname, pos);
+ 	} else if (str_starts(pos, WPA_EVENT_SCAN_RESULTS)) {
+-		wpa_cli_exec(action_file, ifname, pos);
++		wpa_cli_exec(action_file, ifname, "SCAN_RESULTS");
+ 	} else if (str_starts(pos, WPA_EVENT_SCAN_FAILED)) {
+ 		wpa_cli_exec(action_file, ifname, pos);
+ 	} else if (str_starts(pos, WPA_EVENT_TERMINATING)) {

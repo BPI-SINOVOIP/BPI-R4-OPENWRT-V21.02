@@ -1,0 +1,92 @@
+Index: hostapd-2022-07-29-b704dc72/hostapd/config_file.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/hostapd/config_file.c
++++ hostapd-2022-07-29-b704dc72/hostapd/config_file.c
+@@ -3763,6 +3763,8 @@ static int hostapd_config_fill(struct ho
+ 			return 1;
+ 		}
+ 		bss->unsol_bcast_probe_resp_interval = val;
++	} else if (os_strcmp(buf, "dot11vmbssid") == 0) {
++		bss->dot11vmbssid = atoi(pos);
+ #endif /* CONFIG_IEEE80211AX */
+ 	} else if (os_strcmp(buf, "max_listen_interval") == 0) {
+ 		bss->max_listen_interval = atoi(pos);
+Index: hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/ap_config.h
++++ hostapd-2022-07-29-b704dc72/src/ap/ap_config.h
+@@ -922,6 +922,9 @@ struct hostapd_bss_config {
+ 	u8 ext_capa[EXT_CAPA_MAX_LEN];
+ 
+ 	u8 rnr;
++#ifdef CONFIG_IEEE80211AX
++	u8 dot11vmbssid;
++#endif /* CONFIG_IEEE80211AX */
+ };
+ 
+ /**
+Index: hostapd-2022-07-29-b704dc72/src/ap/beacon.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/beacon.c
++++ hostapd-2022-07-29-b704dc72/src/ap/beacon.c
+@@ -1908,7 +1908,7 @@ static int __ieee802_11_set_beacon(struc
+ 	struct hostapd_config *iconf = iface->conf;
+ 	struct hostapd_hw_modes *cmode = iface->current_mode;
+ 	struct wpabuf *beacon, *proberesp, *assocresp;
+-#ifdef	HOSTAPD_11R_SUPPORT
++#if defined(HOSTAPD_11R_SUPPORT) || defined(CONFIG_IEEE80211AX)
+ 	struct hostapd_bss_config *conf = hapd->conf;
+ #endif
+ 	int res, ret = -1;
+@@ -1952,6 +1952,11 @@ static int __ieee802_11_set_beacon(struc
+ 							    IEEE80211_MODE_AP);
+ 	params.unsol_bcast_probe_resp_tmpl =
+ 		hostapd_unsol_bcast_probe_resp(hapd, &params);
++	if (conf->dot11vmbssid) {
++		params.dot11vmbssid = 1;
++	} else {
++		params.dot11vmbssid = 0;
++	}
+ #endif /* CONFIG_IEEE80211AX */
+ 	hapd->reenable_beacon = 0;
+ #ifdef CONFIG_SAE
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver.h
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+@@ -1643,6 +1643,8 @@ struct wpa_driver_ap_params {
+ 	 * Unsolicited broadcast Probe Response template length
+ 	 */
+ 	size_t unsol_bcast_probe_resp_tmpl_len;
++
++	u8 dot11vmbssid;
+ };
+ 
+ struct wpa_driver_mesh_bss_params {
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver_nl80211.c
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver_nl80211.c
+@@ -4646,6 +4646,10 @@ static int wpa_driver_nl80211_set_ap(voi
+ 			    params->proberesp))
+ 			goto fail;
+ 	}
++
++	if (nla_put_u8(msg, NL80211_ATTR_DOT11VMBSSID, params->dot11vmbssid))
++		goto fail;
++
+ 	switch (params->hide_ssid) {
+ 	case NO_SSID_HIDING:
+ 		wpa_printf(MSG_DEBUG, "nl80211: hidden SSID not in use");
+Index: hostapd-2022-07-29-b704dc72/src/drivers/nl80211_copy.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/nl80211_copy.h
++++ hostapd-2022-07-29-b704dc72/src/drivers/nl80211_copy.h
+@@ -3176,6 +3176,7 @@ enum nl80211_attrs {
+ 	NL80211_ATTR_EHT_CAPABILITY,
+ 
+ 	/* add attributes here, update the policy in nl80211.c */
++	NL80211_ATTR_DOT11VMBSSID = NL80211_ATTR_MBSSID_ELEMS + 20,
+ 
+ 	__NL80211_ATTR_AFTER_LAST,
+ 	NUM_NL80211_ATTR = __NL80211_ATTR_AFTER_LAST,

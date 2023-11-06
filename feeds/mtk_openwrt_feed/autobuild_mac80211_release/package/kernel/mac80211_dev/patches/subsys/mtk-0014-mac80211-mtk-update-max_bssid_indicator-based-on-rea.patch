@@ -1,0 +1,27 @@
+From 928dff74ea4777892a48de4d9a8e1385bf4cab81 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Fri, 14 Apr 2023 05:05:17 +0800
+Subject: [PATCH 14/21] mac80211: mtk: update max_bssid_indicator based on real
+ BSS numbers
+
+---
+ net/mac80211/cfg.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/net/mac80211/cfg.c b/net/mac80211/cfg.c
+index 177409d..9724258 100644
+--- a/net/mac80211/cfg.c
++++ b/net/mac80211/cfg.c
+@@ -1194,8 +1194,7 @@ ieee80211_assign_beacon(struct ieee80211_sub_if_data *sdata,
+ 			ieee80211_copy_rnr_beacon(pos, new->rnr_ies, rnr);
+ 		}
+ 		/* update bssid_indicator */
+-		link_conf->bssid_indicator =
+-			ilog2(__roundup_pow_of_two(mbssid->cnt + 1));
++		sdata->vif.bss_conf.bssid_indicator = *(pos + 2);
+ 	}
+ 
+ 	if (csa) {
+-- 
+2.39.2
+

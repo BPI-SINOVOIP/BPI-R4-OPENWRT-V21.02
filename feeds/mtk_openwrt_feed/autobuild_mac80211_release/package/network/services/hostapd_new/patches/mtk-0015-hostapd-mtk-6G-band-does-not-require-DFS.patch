@@ -1,0 +1,24 @@
+From 38302b0ff51f0e666a2f47ef8851d0fe6e03daad Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Mon, 13 Feb 2023 11:03:53 +0800
+Subject: [PATCH 15/38] hostapd: mtk: 6G band does not require DFS
+
+---
+ src/ap/dfs.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/ap/dfs.c b/src/ap/dfs.c
+index 23e6527..0a8486a 100644
+--- a/src/ap/dfs.c
++++ b/src/ap/dfs.c
+@@ -1516,6 +1516,7 @@ int hostapd_is_dfs_required(struct hostapd_iface *iface)
+ 	if ((!(iface->drv_flags & WPA_DRIVER_FLAGS_DFS_OFFLOAD) &&
+ 	     !iface->conf->ieee80211h) ||
+ 	    !iface->current_mode ||
++	    is_6ghz_freq(iface->freq) ||
+ 	    iface->current_mode->mode != HOSTAPD_MODE_IEEE80211A)
+ 		return 0;
+ 
+-- 
+2.18.0
+

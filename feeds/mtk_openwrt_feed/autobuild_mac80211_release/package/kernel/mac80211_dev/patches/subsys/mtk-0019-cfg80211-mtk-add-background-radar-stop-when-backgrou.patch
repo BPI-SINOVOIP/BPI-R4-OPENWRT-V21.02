@@ -1,0 +1,29 @@
+From a97cd11f1654844ed431aa359eca83fa844883c0 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Thu, 27 Jul 2023 10:27:04 +0800
+Subject: [PATCH 19/21] cfg80211: mtk: add background radar stop when
+ background channel is overlapped with operating channel
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ net/wireless/nl80211.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/net/wireless/nl80211.c b/net/wireless/nl80211.c
+index d8e4d0f..4692480 100644
+--- a/net/wireless/nl80211.c
++++ b/net/wireless/nl80211.c
+@@ -10021,6 +10021,10 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
+ 		wdev->cac_started = true;
+ 		wdev->cac_start_time = jiffies;
+ 		wdev->cac_time_ms = cac_time_ms;
++		if (rdev->background_cac_started &&
++		    cfg80211_is_sub_chan(&chandef, rdev->background_radar_chandef.chan, false)) {
++			cfg80211_stop_background_radar_detection(rdev->background_radar_wdev);
++		}
+ 	}
+ unlock:
+ 	wiphy_unlock(wiphy);
+-- 
+2.39.2
+

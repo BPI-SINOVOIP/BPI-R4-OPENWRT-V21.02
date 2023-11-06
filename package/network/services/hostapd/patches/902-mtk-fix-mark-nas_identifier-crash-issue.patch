@@ -1,0 +1,15 @@
+--- a/src/ap/beacon.c
++++ b/src/ap/beacon.c
+@@ -1865,8 +1865,10 @@ static int __ieee802_11_set_beacon(struc
+ 
+ #ifdef HOSTAPD_11R_SUPPORT
+ 	params.ft_params.reassociation_deadline = conf->reassociation_deadline;
+-	params.ft_params.nas_id_len = os_strlen(conf->nas_identifier);
+-	os_memcpy(params.ft_params.nas_identifier, conf->nas_identifier, os_strlen(conf->nas_identifier));
++	if (conf->nas_identifier) {
++		params.ft_params.nas_id_len = os_strlen(conf->nas_identifier);
++		os_memcpy(params.ft_params.nas_identifier, conf->nas_identifier, os_strlen(conf->nas_identifier));
++	}
+ 	os_memcpy(params.ft_params.r1_key_holder, conf->r1_key_holder, ETH_ALEN);
+ 	os_memcpy(params.ft_params.own_mac, hapd->own_addr, ETH_ALEN);
+ #endif /*HOSTAPD_11R_SUPPORT */

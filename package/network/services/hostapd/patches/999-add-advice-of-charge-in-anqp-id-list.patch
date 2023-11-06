@@ -1,0 +1,23 @@
+diff --git a/src/ap/gas_serv.c b/src/ap/gas_serv.c
+index 68c0600..7d87a11 100644
+--- a/src/ap/gas_serv.c
++++ b/src/ap/gas_serv.c
+@@ -294,7 +294,7 @@ static void anqp_add_capab_list(struct hostapd_data *hapd,
+ 		wpabuf_put_le16(buf, ANQP_CAG);
+ 	if (hapd->conf->venue_url || get_anqp_elem(hapd, ANQP_VENUE_URL))
+ 		wpabuf_put_le16(buf, ANQP_VENUE_URL);
+-	if (get_anqp_elem(hapd, ANQP_ADVICE_OF_CHARGE))
++	if (hapd->conf->aoc_data || get_anqp_elem(hapd, ANQP_ADVICE_OF_CHARGE))
+ 		wpabuf_put_le16(buf, ANQP_ADVICE_OF_CHARGE);
+ 	if (get_anqp_elem(hapd, ANQP_LOCAL_CONTENT))
+ 		wpabuf_put_le16(buf, ANQP_LOCAL_CONTENT);
+@@ -1220,6 +1220,9 @@ static void rx_anqp_query_list_id(struct hostapd_data *hapd, u16 info_id,
+ 		if (info_id == ANQP_VENUE_URL && hapd->conf->venue_url) {
+ 			wpa_printf(MSG_DEBUG,
+ 				   "ANQP: Venue URL (local)");
++		} else if (info_id == ANQP_ADVICE_OF_CHARGE && hapd->conf->aoc_data) {
++			wpa_printf(MSG_DEBUG,
++					"ANQP: Advice Of Charge (local)");
+ 		} else if (!get_anqp_elem(hapd, info_id)) {
+ 			wpa_printf(MSG_DEBUG, "ANQP: Unsupported Info Id %u",
+ 				   info_id);

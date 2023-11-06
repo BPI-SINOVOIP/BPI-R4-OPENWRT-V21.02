@@ -1,0 +1,28 @@
+From f364ba42a956ba321876c2ac3798811cd8ea88f3 Mon Sep 17 00:00:00 2001
+From: Benjamin Lin <benjamin-jw.lin@mediatek.com>
+Date: Wed, 7 Jun 2023 10:21:09 +0800
+Subject: [PATCH 26/98] wifi: mt76: mt7996: accommodate MT7992 with different
+ capability
+
+Signed-off-by: Benjamin Lin <benjamin-jw.lin@mediatek.com>
+---
+ mt7996/mt7996.h | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 6a31819..31fa2b5 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -390,6 +390,9 @@ mt7996_phy3(struct mt7996_dev *dev)
+ static inline bool
+ mt7996_band_valid(struct mt7996_dev *dev, u8 band)
+ {
++	if (is_mt7992(&dev->mt76))
++		return band <= MT_BAND1;
++
+ 	/* tri-band support */
+ 	if (band <= MT_BAND2 &&
+ 	    mt76_get_field(dev, MT_PAD_GPIO, MT_PAD_GPIO_ADIE_COMB) <= 1)
+-- 
+2.18.0
+

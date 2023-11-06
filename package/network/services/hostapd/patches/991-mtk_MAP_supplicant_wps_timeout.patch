@@ -1,0 +1,14 @@
+diff --git a/wpa_supplicant/wps_supplicant.c b/wpa_supplicant/wps_supplicant.c
+index 6639c85..3f5c74a 100644
+--- a/wpa_supplicant/wps_supplicant.c
++++ b/wpa_supplicant/wps_supplicant.c
+@@ -392,6 +392,9 @@ static int wpa_supplicant_wps_cred(void *ctx,
+ #endif
+ 			wpa_msg(wpa_s, MSG_INFO, "%s%s",
+ 				WPS_EVENT_CRED_RECEIVED, buf);
++#ifdef CONFIG_MTK_MAP
++			eloop_cancel_timeout(wpas_wps_timeout, wpa_s, NULL);
++#endif
+ 			os_free(buf);
+ 		}
+ 		wpas_notify_wps_credential(wpa_s, cred);

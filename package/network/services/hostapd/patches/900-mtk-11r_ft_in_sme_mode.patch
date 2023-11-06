@@ -1,0 +1,156 @@
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -287,7 +287,7 @@ OBJS += ../src/common/ocv.o
+ endif
+ 
+ ifdef CONFIG_IEEE80211R
+-CFLAGS += -DCONFIG_IEEE80211R -DCONFIG_IEEE80211R_AP
++CFLAGS += -DCONFIG_IEEE80211R -DCONFIG_IEEE80211R_AP -DHOSTAPD_11R_SUPPORT
+ OBJS += ../src/ap/wpa_auth_ft.o
+ NEED_AES_UNWRAP=y
+ NEED_AES_SIV=y
+--- a/src/ap/beacon.c
++++ b/src/ap/beacon.c
+@@ -1796,6 +1796,9 @@ static int __ieee802_11_set_beacon(struc
+ 	struct hostapd_config *iconf = iface->conf;
+ 	struct hostapd_hw_modes *cmode = iface->current_mode;
+ 	struct wpabuf *beacon, *proberesp, *assocresp;
++#ifdef	HOSTAPD_11R_SUPPORT
++	struct hostapd_bss_config *conf = hapd->conf;
++#endif
+ 	int res, ret = -1;
+ 
+ 	if (!hapd->drv_priv) {
+@@ -1860,6 +1863,14 @@ static int __ieee802_11_set_beacon(struc
+ 				    &cmode->he_capab[IEEE80211_MODE_AP]) == 0)
+ 		params.freq = &freq;
+ 
++#ifdef HOSTAPD_11R_SUPPORT
++	params.ft_params.reassociation_deadline = conf->reassociation_deadline;
++	params.ft_params.nas_id_len = os_strlen(conf->nas_identifier);
++	os_memcpy(params.ft_params.nas_identifier, conf->nas_identifier, os_strlen(conf->nas_identifier));
++	os_memcpy(params.ft_params.r1_key_holder, conf->r1_key_holder, ETH_ALEN);
++	os_memcpy(params.ft_params.own_mac, hapd->own_addr, ETH_ALEN);
++#endif /*HOSTAPD_11R_SUPPORT */
++
+ 	res = hostapd_drv_set_ap(hapd, &params);
+ 	hostapd_free_ap_extra_ies(hapd, beacon, proberesp, assocresp);
+ 	if (res)
+--- a/src/ap/ieee802_11.c
++++ b/src/ap/ieee802_11.c
+@@ -4961,6 +4961,7 @@ static int add_associated_sta(struct hos
+ 		   wpa_auth_sta_ft_tk_already_set(sta->wpa_sm),
+ 		   wpa_auth_sta_fils_tk_already_set(sta->wpa_sm));
+ 
++#ifndef	HOSTAPD_11R_SUPPORT
+ 	if (!sta->added_unassoc &&
+ 	    (!(sta->flags & WLAN_STA_AUTHORIZED) ||
+ 	     (reassoc && sta->ft_over_ds && sta->auth_alg == WLAN_AUTH_FT) ||
+@@ -4976,6 +4977,7 @@ static int add_associated_sta(struct hos
+ 		  * used here */
+ 		sta->ft_over_ds = 0;
+ 	}
++#endif
+ 
+ 	if (sta->flags & WLAN_STA_HT)
+ 		hostapd_get_ht_capab(hapd, sta->ht_capabilities, &ht_cap);
+--- a/src/drivers/driver.h
++++ b/src/drivers/driver.h
+@@ -27,6 +27,9 @@
+ #include "pae/ieee802_1x_kay.h"
+ #endif /* CONFIG_MACSEC */
+ #include "utils/list.h"
++#ifdef HOSTAPD_11R_SUPPORT
++#include "mtk_vendor_nl80211.h"
++#endif
+ 
+ #define HOSTAPD_CHAN_DISABLED 0x00000001
+ #define HOSTAPD_CHAN_NO_IR 0x00000002
+@@ -1454,6 +1457,11 @@ struct wpa_driver_ap_params {
+ 	 */
+ 	int pbss;
+ 
++#ifdef HOSTAPD_11R_SUPPORT
++	/*11r params for driver*/
++	struct ap_11r_params ft_params;
++#endif /*HOSTAPD_11R_SUPPORT*/
++
+ 	/**
+ 	 * multicast_to_unicast - Whether to use multicast_to_unicast
+ 	 *
+--- a/src/drivers/driver_nl80211.c
++++ b/src/drivers/driver_nl80211.c
+@@ -4285,6 +4285,44 @@ static int nl80211_set_mesh_config(void
+ }
+ #endif /* CONFIG_MESH */
+ 
++#ifdef HOSTAPD_11R_SUPPORT
++static int nl80211_set_ft_ie(struct wpa_driver_nl80211_data *drv,
++					struct wpa_driver_ap_params *params)
++{
++	struct ap_11r_params* ft_params;
++	struct nl_msg *msg = NULL;
++	struct nlattr *attr;
++	int ret;
++
++	wpa_printf(MSG_INFO, "nl80211_set_ft_ie");
++
++	if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
++			nla_put_u32(msg, NL80211_ATTR_VENDOR_ID, MTK_NL80211_VENDOR_ID) ||
++			nla_put_u32(msg, NL80211_ATTR_VENDOR_SUBCMD, MTK_NL80211_VENDOR_SUBCMD_SET_FT))
++			goto fail;
++
++	attr = nla_nest_start(msg, NL80211_ATTR_VENDOR_DATA);
++	if (!attr)
++		goto fail;
++
++	if (nla_put(msg, MTK_NL80211_VENDOR_ATTR_SET_FTIE, sizeof(struct ap_11r_params),
++	     			(void *)(&params->ft_params)))
++		goto fail;
++
++	nla_nest_end(msg, attr);
++
++	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
++	if (ret)
++		wpa_printf(MSG_DEBUG, "nl80211: vendor command failed err=%d",
++				  ret);
++	return ret;
++
++	fail:
++		nlmsg_free(msg);
++		return ret;
++}
++#endif
++
+ 
+ static int nl80211_put_beacon_rate(struct nl_msg *msg, u64 flags, u64 flags2,
+ 				   struct wpa_driver_ap_params *params)
+@@ -4551,6 +4589,10 @@ static int wpa_driver_nl80211_set_ap(voi
+ 	struct wpa_driver_mesh_bss_params mesh_params;
+ #endif /* CONFIG_MESH */
+ 
++#ifdef HOSTAPD_11R_SUPPORT
++	nl80211_set_ft_ie(drv, params);
++#endif
++
+ 	beacon_set = params->reenable ? 0 : bss->beacon_set;
+ 
+ 	wpa_printf(MSG_DEBUG, "nl80211: Set beacon (beacon_set=%d)",
+@@ -8437,6 +8479,17 @@ static int wpa_driver_nl80211_probe_req_
+ 				   NULL, 0, false) < 0)
+ 		goto out_err;
+ 
++#ifdef HOSTAPD_11R_SUPPORT
++	if (nl80211_register_frame(bss, bss->nl_preq,
++				   (WLAN_FC_TYPE_MGMT << 2) |
++				   (WLAN_FC_STYPE_REASSOC_REQ << 4),
++				   NULL, 0, false) < 0)
++		goto out_err;
++	else
++		wpa_printf(MSG_DEBUG, "nl80211: Enable REASSOC REQ Handle "
++		   "reporting nl_mgmt=%p", bss->nl_mgmt);
++#endif
++
+ 	nl80211_register_eloop_read(&bss->nl_preq,
+ 				    wpa_driver_nl80211_event_receive,
+ 				    bss->nl_cb, 0);

@@ -1,0 +1,15 @@
+diff --git a/src/ap/pmksa_cache_auth.c b/src/ap/pmksa_cache_auth.c
+index 512b74e..eeb3801 100644
+--- a/src/ap/pmksa_cache_auth.c
++++ b/src/ap/pmksa_cache_auth.c
+@@ -370,9 +370,7 @@ pmksa_cache_auth_add(struct rsn_pmksa_cache *pmksa,
+ 	pmkid_entry.AddRemove = 1;	      /*Add PMKID in driver entry*/
+ 	os_memcpy(pmkid_entry.sta, spa, ETH_ALEN);
+ 	os_memcpy(pmkid_entry.bssid, aa, ETH_ALEN);
+-	if (pmkid) {
+-		os_memcpy(pmkid_entry.pmkid, pmkid, PMKID_LEN);
+-	}
++	os_memcpy(pmkid_entry.pmkid, entry->pmkid, PMKID_LEN);
+ 	wpa_auth = (struct wpa_authenticator *)(pmksa->ctx);
+ 	hapd = (struct hostapd_data *)(wpa_auth->cb_ctx);
+ 	pmksa_update_sta_pmkid(hapd->drv_priv, &pmkid_entry);

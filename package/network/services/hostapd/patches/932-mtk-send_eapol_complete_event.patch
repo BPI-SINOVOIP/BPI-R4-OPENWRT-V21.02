@@ -1,0 +1,28 @@
+diff --git a/src/common/wpa_ctrl.h b/src/common/wpa_ctrl.h
+index fed779c..abd4adb 100644
+--- a/src/common/wpa_ctrl.h
++++ b/src/common/wpa_ctrl.h
+@@ -145,6 +145,8 @@ extern "C" {
+ #define WPS_EVENT_AP_AVAILABLE "WPS-AP-AVAILABLE "
+ /** A new credential received */
+ #define WPS_EVENT_CRED_RECEIVED "WPS-CRED-RECEIVED "
++/** Ongoing WPS completed */
++#define WPS_EVENT_EAPOL_COMPLETE "WPS-EAPOL-COMPLETE "
+ /** M2D received */
+ #define WPS_EVENT_M2D "WPS-M2D "
+ /** WPS registration failed after M2/M2D */
+diff --git a/src/wps/wps_registrar.c b/src/wps/wps_registrar.c
+index b9581b7..30a66a6 100644
+--- a/src/wps/wps_registrar.c
++++ b/src/wps/wps_registrar.c
+@@ -2112,6 +2112,10 @@ static struct wpabuf * wps_build_m8(struct wps_data *wps)
+ 	}
+ 	wpabuf_clear_free(plain);
+ 
++#ifdef CONFIG_MTK_MAP
++	wpa_msg(((struct hostapd_data *)wps->wps->cb_ctx)->msg_ctx, MSG_INFO, WPS_EVENT_EAPOL_COMPLETE);
++#endif /* CONFIG_MTK_MAP */
++
+ 	wps->state = RECV_DONE;
+ 	return msg;
+ }

@@ -1,0 +1,27 @@
+diff --git a/hostapd/Makefile b/hostapd/Makefile
+index 068f134..2d33ef5 100644
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -39,7 +39,7 @@ endif
+ endif
+ 
+ # MTK MAP Macro
+-#CFLAGS += -DCONFIG_MTK_MAP
++CFLAGS += -DCONFIG_MTK_MAP
+ 
+ ifdef CONFIG_TESTING_OPTIONS
+ CFLAGS += -DCONFIG_TESTING_OPTIONS
+diff --git a/wpa_supplicant/sme.c b/wpa_supplicant/sme.c
+index 13c5fac..2952ff6 100644
+--- a/wpa_supplicant/sme.c
++++ b/wpa_supplicant/sme.c
+@@ -1442,6 +1442,9 @@ static int sme_sae_auth(struct wpa_supplicant *wpa_s, u16 auth_transaction,
+ 			" auth_type=%u auth_transaction=%u status_code=%u",
+ 			MAC2STR(bssid), WLAN_AUTH_SAE,
+ 			auth_transaction, status_code);
++#ifdef CONFIG_MTK_MAP
++			wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_SAE_FAIL_RECONF);
++#endif /* CONFIG_MTK_MAP */
+ 		return -2;
+ 	}
+ 

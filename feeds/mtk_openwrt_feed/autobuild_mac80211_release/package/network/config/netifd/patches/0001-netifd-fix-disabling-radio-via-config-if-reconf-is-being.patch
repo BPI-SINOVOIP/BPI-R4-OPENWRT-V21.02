@@ -1,0 +1,28 @@
+From 4711f74479e213ef86f8792b408b117d40148eb2 Mon Sep 17 00:00:00 2001
+From: Prasun Maiti <prasunmaiti87@gmail.com>
+Date: Thu, 17 Aug 2023 17:47:18 +0530
+Subject: [PATCH] netifd: fix disabling radio via config if reconf is being
+ used
+
+Do not bypass down/up reconfig codepath if the radio is being disabled,
+otherwise it will be left running.
+
+Signed-off-by: Prasun Maiti <prasunmaiti87@gmail.com>
+Signed-off-by: Felix Fietkau <nbd@nbd.name> [fix commit description]
+---
+ wireless.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/wireless.c b/wireless.c
+index 873c437..898a012 100644
+--- a/wireless.c
++++ b/wireless.c
+@@ -681,7 +681,7 @@ wdev_set_config_state(struct wireless_device *wdev, enum interface_config_state
+ 		return;
+ 
+ 	wdev->config_update = false;
+-	if (s == IFC_RELOAD && wdev->reconf && wdev->state == IFS_UP) {
++	if (!wdev->disabled && s == IFC_RELOAD && wdev->reconf && wdev->state == IFS_UP) {
+ 		wireless_device_reconf(wdev);
+ 		return;
+ 	}

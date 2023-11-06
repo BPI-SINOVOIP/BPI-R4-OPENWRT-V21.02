@@ -1,0 +1,120 @@
+From 4f5af38dbe7866b635428ebe80df29ab96bd660e Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Fri, 26 May 2023 14:41:27 +0800
+Subject: [PATCH 60/98] wifi: mt76: mt7996: add kite fwdl support
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt76_connac_mcu.c |  3 ++-
+ mt7996/mcu.c      | 26 +++++++++++++++++++++-----
+ mt7996/mt7996.h   |  6 ++++++
+ mt7996/pci.c      |  4 ++++
+ 4 files changed, 33 insertions(+), 6 deletions(-)
+
+diff --git a/mt76_connac_mcu.c b/mt76_connac_mcu.c
+index 214a526..43e8ce0 100644
+--- a/mt76_connac_mcu.c
++++ b/mt76_connac_mcu.c
+@@ -68,7 +68,8 @@ int mt76_connac_mcu_init_download(struct mt76_dev *dev, u32 addr, u32 len,
+ 	if ((!is_connac_v1(dev) && addr == MCU_PATCH_ADDRESS) ||
+ 	    (is_mt7921(dev) && addr == 0x900000) ||
+ 	    (is_mt7925(dev) && addr == 0x900000) ||
+-	    (is_mt7996(dev) && addr == 0x900000))
++	    (is_mt7996(dev) && addr == 0x900000) ||
++	    (is_mt7992(dev) && addr == 0x900000))
+ 		cmd = MCU_CMD(PATCH_START_REQ);
+ 	else
+ 		cmd = MCU_CMD(TARGET_ADDRESS_LEN_REQ);
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 3a960d1..255d0ba 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -11,6 +11,22 @@
+ #include "mac.h"
+ #include "eeprom.h"
+ 
++#define fw_name(_dev, name, ...)	({			\
++	char *_fw;						\
++	switch (mt76_chip(&(_dev)->mt76)) {			\
++	case 0x7996:						\
++		_fw = MT7996_##name;				\
++		break;						\
++	case 0x7992:						\
++		_fw = MT7992_##name;				\
++		break;						\
++	default:						\
++		_fw = MT7996_##name;				\
++		break;						\
++	}							\
++	_fw;							\
++})
++
+ struct mt7996_patch_hdr {
+ 	char build_date[16];
+ 	char platform[4];
+@@ -2598,7 +2614,7 @@ static int mt7996_load_patch(struct mt7996_dev *dev)
+ 		return -EAGAIN;
+ 	}
+ 
+-	ret = request_firmware(&fw, MT7996_ROM_PATCH, dev->mt76.dev);
++	ret = request_firmware(&fw, fw_name(dev, ROM_PATCH), dev->mt76.dev);
+ 	if (ret)
+ 		goto out;
+ 
+@@ -2767,20 +2783,20 @@ static int mt7996_load_ram(struct mt7996_dev *dev)
+ 	int ret;
+ 
+ 	if (dev->testmode_enable)
+-		ret = __mt7996_load_ram(dev, "WM_TM", MT7996_FIRMWARE_WM_TM,
++		ret = __mt7996_load_ram(dev, "WM_TM", fw_name(dev, FIRMWARE_WM_TM),
+ 					MT7996_RAM_TYPE_WM_TM);
+ 	else
+-		ret = __mt7996_load_ram(dev, "WM", MT7996_FIRMWARE_WM,
++		ret = __mt7996_load_ram(dev, "WM", fw_name(dev, FIRMWARE_WM),
+ 					MT7996_RAM_TYPE_WM);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = __mt7996_load_ram(dev, "DSP", MT7996_FIRMWARE_DSP,
++	ret = __mt7996_load_ram(dev, "DSP", fw_name(dev, FIRMWARE_DSP),
+ 				MT7996_RAM_TYPE_DSP);
+ 	if (ret)
+ 		return ret;
+ 
+-	return __mt7996_load_ram(dev, "WA", MT7996_FIRMWARE_WA,
++	return __mt7996_load_ram(dev, "WA", fw_name(dev, FIRMWARE_WA),
+ 				 MT7996_RAM_TYPE_WA);
+ }
+ 
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 766de3f..eb192eb 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -35,6 +35,12 @@
+ #define MT7996_FIRMWARE_WM_TM		"mediatek/mt7996/mt7996_wm_tm.bin"
+ #define MT7996_ROM_PATCH		"mediatek/mt7996/mt7996_rom_patch.bin"
+ 
++#define MT7992_FIRMWARE_WA		"mediatek/mt7996/mt7992_wa.bin"
++#define MT7992_FIRMWARE_WM		"mediatek/mt7996/mt7992_wm.bin"
++#define MT7992_FIRMWARE_DSP		"mediatek/mt7996/mt7992_dsp.bin"
++#define MT7992_FIRMWARE_WM_TM		"mediatek/mt7996/mt7992_wm_tm.bin"
++#define MT7992_ROM_PATCH		"mediatek/mt7996/mt7992_rom_patch.bin"
++
+ #define MT7996_EEPROM_DEFAULT		"mediatek/mt7996/mt7996_eeprom.bin"
+ #define MT7996_EEPROM_DEFAULT_404	"mediatek/mt7996/mt7996_eeprom_dual_404.bin"
+ #define MT7996_EEPROM_DEFAULT_TM	"mediatek/mt7996/mt7996_eeprom_tm.bin"
+diff --git a/mt7996/pci.c b/mt7996/pci.c
+index e8edf77..2bb707d 100644
+--- a/mt7996/pci.c
++++ b/mt7996/pci.c
+@@ -263,3 +263,7 @@ MODULE_FIRMWARE(MT7996_FIRMWARE_WA);
+ MODULE_FIRMWARE(MT7996_FIRMWARE_WM);
+ MODULE_FIRMWARE(MT7996_FIRMWARE_DSP);
+ MODULE_FIRMWARE(MT7996_ROM_PATCH);
++MODULE_FIRMWARE(MT7992_FIRMWARE_WA);
++MODULE_FIRMWARE(MT7992_FIRMWARE_WM);
++MODULE_FIRMWARE(MT7992_FIRMWARE_DSP);
++MODULE_FIRMWARE(MT7992_ROM_PATCH);
+-- 
+2.18.0
+

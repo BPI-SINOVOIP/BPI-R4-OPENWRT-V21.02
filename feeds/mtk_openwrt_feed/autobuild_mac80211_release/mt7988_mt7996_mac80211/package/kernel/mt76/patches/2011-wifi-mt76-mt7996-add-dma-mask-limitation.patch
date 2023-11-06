@@ -1,0 +1,84 @@
+From 39a1bb49d83141f79bf329fdd68e82bb77f5d0a2 Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Thu, 20 Jul 2023 10:25:50 +0800
+Subject: [PATCH 75/98] wifi: mt76: mt7996: add dma mask limitation
+
+Signed-off-by: sujuan.chen <sujuan.chen@mediatek.com>
+---
+ dma.c         | 4 ++--
+ mmio.c        | 3 ++-
+ mt7996/mmio.c | 8 --------
+ mt7996/pci.c  | 2 +-
+ 4 files changed, 5 insertions(+), 12 deletions(-)
+
+diff --git a/dma.c b/dma.c
+index 69e314a..7616921 100644
+--- a/dma.c
++++ b/dma.c
+@@ -494,7 +494,7 @@ mt76_dma_get_buf(struct mt76_dev *dev, struct mt76_queue *q, int idx,
+ 		} else {
+ 			struct mt76_queue_buf qbuf;
+ 
+-			buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC);
++			buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC | GFP_DMA32);
+ 			if (!buf)
+ 				return NULL;
+ 
+@@ -713,7 +713,7 @@ mt76_dma_rx_fill(struct mt76_dev *dev, struct mt76_queue *q)
+ 		if (mt76_queue_is_wed_rro_ind(q))
+ 			goto done;
+ 
+-		buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC);
++		buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC | GFP_DMA32);
+ 		if (!buf)
+ 			break;
+ 
+diff --git a/mmio.c b/mmio.c
+index f7495f6..22629af 100644
+--- a/mmio.c
++++ b/mmio.c
+@@ -150,7 +150,8 @@ u32 mt76_mmio_wed_init_rx_buf(struct mtk_wed_device *wed, int size)
+ 		if (!r)
+ 			goto unmap;
+ 
+-		ptr = page_frag_alloc(&wed->rx_buf_ring.rx_page, length, GFP_ATOMIC);
++		ptr = page_frag_alloc(&wed->rx_buf_ring.rx_page, length,
++				      GFP_ATOMIC | GFP_DMA32);
+ 		if (!ptr) {
+ 			mt76_put_rxwi(dev, r);
+  			goto unmap;
+diff --git a/mt7996/mmio.c b/mt7996/mmio.c
+index 631d905..38b8843 100644
+--- a/mt7996/mmio.c
++++ b/mt7996/mmio.c
+@@ -442,14 +442,6 @@ int mt7996_mmio_wed_init(struct mt7996_dev *dev, void *pdev_ptr,
+ 	*irq = wed->irq;
+ 	dev->mt76.dma_dev = wed->dev;
+ 
+-	ret = dma_set_mask(wed->dev, DMA_BIT_MASK(32));
+-	if (ret)
+-		return ret;
+-
+-	ret = dma_set_coherent_mask(wed->dev, DMA_BIT_MASK(32));
+-	if (ret)
+-		return ret;
+-
+ 	return 1;
+ #else
+ 	return 0;
+diff --git a/mt7996/pci.c b/mt7996/pci.c
+index 2bb707d..0024929 100644
+--- a/mt7996/pci.c
++++ b/mt7996/pci.c
+@@ -111,7 +111,7 @@ static int mt7996_pci_probe(struct pci_dev *pdev,
+ 
+ 	pci_set_master(pdev);
+ 
+-	ret = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
++	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+ 	if (ret)
+ 		return ret;
+ 
+-- 
+2.18.0
+

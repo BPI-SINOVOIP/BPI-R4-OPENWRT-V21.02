@@ -1,0 +1,13 @@
+Index: hostapd-2022-07-29-b704dc72/src/drivers/nl80211_copy.h
+===================================================================
+--- a/src/drivers/nl80211_copy.h
++++ b/src/drivers/nl80211_copy.h
+@@ -3229,7 +3229,7 @@ enum nl80211_attrs {
+ #define NL80211_HE_MIN_CAPABILITY_LEN           16
+ #define NL80211_HE_MAX_CAPABILITY_LEN           54
+ #define NL80211_MAX_NR_CIPHER_SUITES		5
+-#define NL80211_MAX_NR_AKM_SUITES		2
++#define NL80211_MAX_NR_AKM_SUITES		10
+ #define NL80211_EHT_MIN_CAPABILITY_LEN          13
+ #define NL80211_EHT_MAX_CAPABILITY_LEN          51
+ 

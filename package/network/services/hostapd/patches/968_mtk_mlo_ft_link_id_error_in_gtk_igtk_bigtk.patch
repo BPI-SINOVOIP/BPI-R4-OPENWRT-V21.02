@@ -1,0 +1,41 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ft.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+@@ -961,7 +961,7 @@ static u8 * ml_ft_gtk_subelem(struct wpa
+ 	subelem[1] = subelem_len - 2;
+ 	/* Key ID in B0-B1 of Key Info */
+ 	WPA_PUT_LE16(&subelem[2], gsm->GN & 0x03);
+-	subelem[4] = (link->link_id & 0x0f) << 4;
++	subelem[4] = (link->link_id & 0x0f);
+ 	subelem[5] = gsm->GTK_len;
+ 	ft_auth_get_seqnum(sm->wpa_auth, NULL, gsm->GN, subelem + 6);
+ 	if (aes_wrap(kek, kek_len, key_len / 8, key, subelem + 14)) {
+@@ -1015,7 +1015,7 @@ static u8 * ml_ft_igtk_subelem(struct wp
+ 	pos += 2;
+ 	ft_auth_get_seqnum(sm->wpa_auth, NULL, gsm->GN_igtk, pos);
+ 	pos += 6;
+-	*pos++ = (link->link_id & 0x0f) << 4;
++	*pos++ = (link->link_id & 0x0f);
+ 	*pos++ = igtk_len;
+ 	igtk = gsm->IGTK[gsm->GN_igtk - 4];
+ 	if (conf->disable_gtk || sm->wpa_key_mgmt == WPA_KEY_MGMT_OSEN) {
+@@ -1078,7 +1078,7 @@ static u8 * ml_ft_bigtk_subelem(struct w
+ 	pos += 2;
+ 	ft_auth_get_seqnum(sm->wpa_auth, NULL, gsm->GN_bigtk, pos);
+ 	pos += 6;
+-	*pos++ = (link->link_id & 0x0f) << 4;
++	*pos++ = (link->link_id & 0x0f);
+ 	*pos++ = bigtk_len;
+-	bigtk = gsm->IGTK[gsm->GN_bigtk - 6];
++	bigtk = gsm->BIGTK[gsm->GN_bigtk - 6];
+ 	if (sm->wpa_key_mgmt == WPA_KEY_MGMT_OSEN) {
+@@ -2680,7 +2680,7 @@ static u8 * wpa_ft_bigtk_subelem(struct
+ 	wpa_auth_get_seqnum(sm->wpa_auth, NULL, gsm->GN_bigtk, pos);
+ 	pos += 6;
+ 	*pos++ = bigtk_len;
+-	bigtk = gsm->IGTK[gsm->GN_bigtk - 6];
++	bigtk = gsm->BIGTK[gsm->GN_bigtk - 6];
+ 	if (sm->wpa_key_mgmt == WPA_KEY_MGMT_OSEN) {
+ 		/*
+ 		 * Provide unique random BIGTK to each OSEN STA to prevent use

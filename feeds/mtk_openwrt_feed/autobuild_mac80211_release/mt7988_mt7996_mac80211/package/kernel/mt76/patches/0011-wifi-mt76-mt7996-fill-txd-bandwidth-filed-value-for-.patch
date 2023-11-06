@@ -1,0 +1,46 @@
+From bae9e0c386cd710bdf414b0e0e097ea95812673e Mon Sep 17 00:00:00 2001
+From: Howard Hsu <howard-yh.hsu@mediatek.com>
+Date: Wed, 6 Sep 2023 14:51:00 +0800
+Subject: [PATCH 11/98] wifi: mt76: mt7996: fill txd bandwidth filed value for
+ fixed rate frame
+
+Fill bw field value for fixed rate enabled frame to keep it be sent by bw20.
+Without this change, the bw of fixed rate enabled frame will be decided
+by hardware.
+
+Reported-by: Chank Chen <chank.chen@mediatek.com>
+Signed-off-by: Howard Hsu <howard-yh.hsu@mediatek.com>
+---
+ mt76_connac3_mac.h | 1 +
+ mt7996/mac.c       | 3 ++-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/mt76_connac3_mac.h b/mt76_connac3_mac.h
+index 87bfa44..df6b02a 100644
+--- a/mt76_connac3_mac.h
++++ b/mt76_connac3_mac.h
+@@ -239,6 +239,7 @@ enum tx_mgnt_type {
+ 
+ #define MT_TXD6_TX_SRC			GENMASK(31, 30)
+ #define MT_TXD6_VTA			BIT(28)
++#define MT_TXD6_FIXED_BW		BIT(25)
+ #define MT_TXD6_BW			GENMASK(25, 22)
+ #define MT_TXD6_TX_RATE			GENMASK(21, 16)
+ #define MT_TXD6_TIMESTAMP_OFS_EN	BIT(15)
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 6688186..2c6bee4 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -943,7 +943,8 @@ void mt7996_mac_write_txwi(struct mt7996_dev *dev, __le32 *txwi,
+ 				idx = mvif->basic_rates_idx;
+ 		}
+ 
+-		txwi[6] |= cpu_to_le32(FIELD_PREP(MT_TXD6_TX_RATE, idx));
++		val = FIELD_PREP(MT_TXD6_TX_RATE, idx) | MT_TXD6_FIXED_BW;
++		txwi[6] |= cpu_to_le32(val);
+ 		txwi[3] |= cpu_to_le32(MT_TXD3_BA_DISABLE);
+ 	}
+ }
+-- 
+2.18.0
+

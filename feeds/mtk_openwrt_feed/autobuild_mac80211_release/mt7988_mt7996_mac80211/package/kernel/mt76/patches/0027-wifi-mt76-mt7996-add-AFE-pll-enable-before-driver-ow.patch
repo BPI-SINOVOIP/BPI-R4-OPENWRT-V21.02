@@ -1,0 +1,47 @@
+From 41ae938fe5d3df6b40e2b1cd5baaf8ea59bd2c46 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Wed, 12 Jul 2023 23:00:29 +0800
+Subject: [PATCH 27/98] wifi: mt76: mt7996: add AFE pll enable before driver
+ own
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Signed-off-by: Benjamin Lin <benjamin-jw.lin@mediatek.com>
+---
+ mt7996/init.c | 4 ++++
+ mt7996/regs.h | 7 +++++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 3656b89..273d1e7 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -782,6 +782,10 @@ static int mt7996_init_hardware(struct mt7996_dev *dev)
+ 	int ret, idx;
+ 
+ 	mt76_wr(dev, MT_INT_SOURCE_CSR, ~0);
++	if (is_mt7992(&dev->mt76)) {
++		mt76_rmw(dev, MT_AFE_CTL_BAND_PLL_03(MT_BAND0), MT_AFE_CTL_BAND_PLL_03_MSB_EN, 0);
++		mt76_rmw(dev, MT_AFE_CTL_BAND_PLL_03(MT_BAND1), MT_AFE_CTL_BAND_PLL_03_MSB_EN, 0);
++	}
+ 
+ 	INIT_WORK(&dev->init_work, mt7996_init_work);
+ 
+diff --git a/mt7996/regs.h b/mt7996/regs.h
+index 865e005..e76dae6 100644
+--- a/mt7996/regs.h
++++ b/mt7996/regs.h
+@@ -675,4 +675,11 @@ enum base_rev {
+ #define MT_MCU_WM_EXCP_LR_CTRL_IDX_STATUS	GENMASK(20, 16)
+ #define MT_MCU_WM_EXCP_LR_LOG			MT_MCU_WM_EXCP(0x204)
+ 
++/* CONN AFE CTL CON */
++#define MT_AFE_CTL_BASE				0x18043000
++#define MT_AFE_CTL_BAND(_band, ofs)		(MT_AFE_CTL_BASE + \
++						 ((_band) * 0x1000) + (ofs))
++#define MT_AFE_CTL_BAND_PLL_03(_band)		MT_AFE_CTL_BAND(_band, 0x2c)
++#define MT_AFE_CTL_BAND_PLL_03_MSB_EN		BIT(1)
++
+ #endif
+-- 
+2.18.0
+

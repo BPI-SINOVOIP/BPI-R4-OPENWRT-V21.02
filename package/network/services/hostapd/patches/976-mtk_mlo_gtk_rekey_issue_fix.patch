@@ -1,0 +1,150 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+@@ -399,9 +399,25 @@ void wpa_rekey_gtk(void *eloop_ctx, void
+ 	struct wpa_group *group, *next;
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 	struct wpa_ml_group *ml_group = ((struct hostapd_data *)wpa_auth->cb_ctx)->ml_group;
++	struct os_time now;
++	struct os_time diff;
++	struct os_time target;
++	struct wpa_auth_config *conf = &wpa_auth->conf;
+ #endif
+ 
+ 	wpa_auth_logger(wpa_auth, NULL, LOGGER_DEBUG, "rekeying GTK");
++	os_get_time(&now);
++	if ((wpa_auth->ts.sec != 0) || (wpa_auth->ts.usec != 0)) {
++		os_time_sub(&now, &wpa_auth->ts, &diff);
++		target.sec = conf->wpa_group_update_count * 1 + 3;
++		target.usec = 0;
++		if (os_time_before(&diff, &target)) {
++			eloop_register_timeout(target.sec, 0, wpa_rekey_gtk, wpa_auth, NULL);
++			wpa_auth_vlogger(wpa_auth, NULL, LOGGER_DEBUG, "defer rekeying GTK with %lds", target.sec);
++			return;
++		}
++	}
++
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 		if (ml_group) { /* ap mlo on */
+ 			u8 i = 0;
+@@ -410,6 +426,8 @@ void wpa_rekey_gtk(void *eloop_ctx, void
+ 			struct sta_info *sta = NULL;
+ 
+ 			if (1) {
++				wpa_auth->ts.sec = now.sec;
++				wpa_auth->ts.usec = now.usec;
+ 				group = wpa_auth->group;
+ 				while (group) {
+ 					wpa_group_get(wpa_auth, group);
+@@ -440,6 +458,8 @@ void wpa_rekey_gtk(void *eloop_ctx, void
+ 									} else {
+ 										wpa_printf(MSG_DEBUG, "the rekey happen in not assoc link ");
+ 										wpa_auth_tmp = ((struct hostapd_data *)link->ctx)->wpa_auth;
++										wpa_auth_tmp->ts.sec = now.sec;
++										wpa_auth_tmp->ts.usec = now.usec;
+ 										group = wpa_auth_tmp->group;
+ 										while (group) {
+ 											wpa_group_get(wpa_auth_tmp, group);
+@@ -447,7 +467,10 @@ void wpa_rekey_gtk(void *eloop_ctx, void
+ 											group->GTKReKey = true;
+ 											do {
+ 												group->changed = false;
++												/*only need to tx eapol in set up link, not update set up link gtk data*/
++												group->mlo_link_no_need_rekey_gtk_data = true;
+ 												wpa_group_sm_step(wpa_auth_tmp, group);
++												group->mlo_link_no_need_rekey_gtk_data = false;
+ 											} while (group->changed);
+ 
+ 											next = group->next;
+@@ -462,6 +485,8 @@ void wpa_rekey_gtk(void *eloop_ctx, void
+ 				}
+ 			}
+ 		} else { /*ap mlo off, go legacy gtk rekey flow */
++			wpa_auth->ts.sec = now.sec;
++			wpa_auth->ts.usec = now.usec;
+ 			group = wpa_auth->group;
+ 			while (group) {
+ 				wpa_group_get(wpa_auth, group);
+@@ -4338,6 +4363,28 @@ static int wpa_gtk_update(struct wpa_aut
+ 	int ret = 0;
+ 	size_t len;
+ 
++	wpa_printf(MSG_DEBUG,
++		   "In wpa_gtk_update group is %p, GN:%d, GN_igtk:%d, group->GN_bigtk:%d", group, group->GN, group->GN_igtk, group->GN_bigtk);
++#ifdef CONFIG_MTK_IEEE80211BE
++	if (group->mlo_link_no_need_rekey_gtk_data) {
++		wpa_printf(MSG_DEBUG,
++		   "This mlo link no need to rekey gtk data");
++		wpa_hexdump_key(MSG_DEBUG, "GTK",
++			group->GTK[group->GN - 1], group->GTK_len);
++		if (conf->ieee80211w != NO_MGMT_FRAME_PROTECTION) {
++			len = wpa_cipher_key_len(conf->group_mgmt_cipher);
++			wpa_hexdump_key(MSG_DEBUG, "IGTK",
++				group->IGTK[group->GN_igtk - 4], len);
++		}
++		if (conf->ieee80211w != NO_MGMT_FRAME_PROTECTION &&
++	    conf->beacon_prot) {
++	    	len = wpa_cipher_key_len(conf->group_mgmt_cipher);
++	    	wpa_hexdump_key(MSG_DEBUG, "BIGTK",
++				group->BIGTK[group->GN_bigtk - 6], len);
++		}
++		return ret;
++	}
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 	os_memcpy(group->GNonce, group->Counter, WPA_NONCE_LEN);
+ 	inc_byte_array(group->Counter, WPA_NONCE_LEN);
+ 	if (wpa_gmk_to_gtk(group->GMK, "Group key expansion",
+@@ -4579,6 +4626,21 @@ static void wpa_group_setkeys(struct wpa
+ 	group->changed = true;
+ 	group->wpa_group_state = WPA_GROUP_SETKEYS;
+ 	group->GTKReKey = false;
++#ifdef CONFIG_MTK_IEEE80211BE
++	if (group->mlo_link_no_need_rekey_gtk_data) {
++		wpa_printf(MSG_DEBUG, "This mlo link no need to turn over key idx");
++	} else {
++		tmp = group->GM;
++		group->GM = group->GN;
++		group->GN = tmp;
++		tmp = group->GM_igtk;
++		group->GM_igtk = group->GN_igtk;
++		group->GN_igtk = tmp;
++		tmp = group->GM_bigtk;
++		group->GM_bigtk = group->GN_bigtk;
++		group->GN_bigtk = tmp;
++	}
++#else /* CONFIG_MTK_IEEE80211BE */
+ 	tmp = group->GM;
+ 	group->GM = group->GN;
+ 	group->GN = tmp;
+@@ -4588,6 +4650,7 @@ static void wpa_group_setkeys(struct wpa
+ 	tmp = group->GM_bigtk;
+ 	group->GM_bigtk = group->GN_bigtk;
+ 	group->GN_bigtk = tmp;
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 	/* "GKeyDoneStations = GNoStations" is done in more robust way by
+ 	 * counting the STAs that are marked with GUpdateStationKeys instead of
+ 	 * including all STAs that could be in not-yet-completed state. */
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_i.h
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_i.h
+@@ -218,6 +218,10 @@ struct wpa_group {
+ 	/* Number of references except those in struct wpa_group->next */
+ 	unsigned int references;
+ 	unsigned int num_setup_iface;
++
++#ifdef CONFIG_MTK_IEEE80211BE
++	bool mlo_link_no_need_rekey_gtk_data;
++#endif /* CONFIG_MTK_IEEE80211BE */
+ };
+ 
+ 
+@@ -253,6 +257,7 @@ struct wpa_authenticator {
+ #ifdef CONFIG_P2P
+ 	struct bitfield *ip_pool;
+ #endif /* CONFIG_P2P */
++	struct os_time ts;
+ };
+ 
+ 

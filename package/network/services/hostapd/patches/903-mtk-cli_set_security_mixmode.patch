@@ -1,0 +1,38 @@
+Index: hostapd-2022-01-16-cff80b4f/hostapd/config_file.c
+===================================================================
+--- hostapd-2022-01-16-cff80b4f.orig/hostapd/config_file.c
++++ hostapd-2022-01-16-cff80b4f/hostapd/config_file.c
+@@ -690,12 +690,12 @@ static int hostapd_config_parse_key_mgmt
+ 	start = buf;
+ 
+ 	while (*start != '\0') {
+-		while (*start == ' ' || *start == '\t')
++		while (*start == ' ' || *start == ',' || *start == '\t')
+ 			start++;
+ 		if (*start == '\0')
+ 			break;
+ 		end = start;
+-		while (*end != ' ' && *end != '\t' && *end != '\0')
++		while (*end != ' ' && *end != ',' && *end != '\t' && *end != '\0')
+ 			end++;
+ 		last = *end == '\0';
+ 		*end = '\0';
+Index: hostapd-2022-01-16-cff80b4f/src/common/wpa_common.c
+===================================================================
+--- hostapd-2022-01-16-cff80b4f.orig/src/common/wpa_common.c
++++ hostapd-2022-01-16-cff80b4f/src/common/wpa_common.c
+@@ -2827,12 +2827,12 @@ int wpa_parse_cipher(const char *value)
+ 	start = buf;
+ 
+ 	while (*start != '\0') {
+-		while (*start == ' ' || *start == '\t')
++		while (*start == ' ' || *start == ',' || *start == '\t')
+ 			start++;
+ 		if (*start == '\0')
+ 			break;
+ 		end = start;
+-		while (*end != ' ' && *end != '\t' && *end != '\0')
++		while (*end != ' ' && *end != ',' && *end != '\t' && *end != '\0')
+ 			end++;
+ 		last = *end == '\0';
+ 		*end = '\0';

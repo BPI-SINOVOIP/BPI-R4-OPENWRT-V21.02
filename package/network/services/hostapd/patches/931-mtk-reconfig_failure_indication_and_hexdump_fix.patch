@@ -1,0 +1,77 @@
+Index: hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/ap/wnm_ap.c
++++ hostapd-2022-06-02-4383528e/src/ap/wnm_ap.c
+@@ -626,8 +626,17 @@ static void ieee802_11_rx_bss_trans_mgmt
+ 						    status_code, bss_termination_delay,
+ 						    target_bssid, pos, end - pos);
+
+-	wpa_hexdump(MSG_DEBUG, "WNM: BSS Transition Candidate List Entries",
+-		pos, end - pos);
++	while (pos < end ) {
++		if (end - pos < 16) {
++			wpa_printf(MSG_DEBUG, "WNM: not enough room for BSS Transition Candidate List Entries");
++			return;
++		}
++		else {
++			wpa_hexdump(MSG_DEBUG, "WNM: BSS Transition Candidate List Entries",
++			pos, *(pos+16));
++			pos += 16;
++		}
++	}
+ }
+
+
+Index: hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.h
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/common/wpa_ctrl.h
++++ hostapd-2022-06-02-4383528e/src/common/wpa_ctrl.h
+@@ -162,9 +162,11 @@ extern "C" {
+ 
+ #define WPS_EVENT_OPEN_NETWORK "WPS-OPEN-NETWORK "
+ 
++#define WPA_EVENT_EAPOL_TIMEOUT "EAPOL-TIMEOUT "
++
+ #ifdef CONFIG_MTK_MAP
+ #define WPS_EVENT_DPP_URI_RECEIVED "WPS-DPP-URI-RECEIVED "
+-#define WPA_EVENT_SAE_FAIL_RECONF "WPA-SAE-FAIL-RECONF "
++#define WPA_EVENT_RECONF_FAIL "WPA-RECONF-FAIL "
+ #endif /* CONFIG_MTK_MAP */
+ 
+ /** Result of SCS setup */
+Index: hostapd-2022-06-02-4383528e/wpa_supplicant/events.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/wpa_supplicant/events.c
++++ hostapd-2022-06-02-4383528e/wpa_supplicant/events.c
+@@ -3711,6 +3711,9 @@ static void wpa_supplicant_event_disasso
+ 	if (could_be_psk_mismatch(wpa_s, reason_code, locally_generated)) {
+ 		wpa_msg(wpa_s, MSG_INFO, "WPA: 4-Way Handshake failed - "
+ 			"pre-shared key may be incorrect");
++#ifdef CONFIG_MTK_MAP
++		wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_RECONF_FAIL);
++#endif /* CONFIG_MTK_MAP */
+ 		if (wpas_p2p_4way_hs_failed(wpa_s) > 0)
+ 			return; /* P2P group removed */
+ 		wpas_auth_failed(wpa_s, "WRONG_KEY");
+Index: hostapd-2022-06-02-4383528e/wpa_supplicant/sme.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/wpa_supplicant/sme.c
++++ hostapd-2022-06-02-4383528e/wpa_supplicant/sme.c
+@@ -1467,7 +1467,7 @@ static int sme_sae_auth(struct wpa_suppl
+ 			MAC2STR(bssid), WLAN_AUTH_SAE,
+ 			auth_transaction, status_code);
+ #ifdef CONFIG_MTK_MAP
+-			wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_SAE_FAIL_RECONF);
++			wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_RECONF_FAIL);
+ #endif /* CONFIG_MTK_MAP */
+ 		return -2;
+ 	}
+@@ -1690,7 +1690,7 @@ void sme_event_auth(struct wpa_supplican
+ 			wpas_connection_failed(wpa_s, wpa_s->pending_bssid);
+ 			wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
+ #ifdef CONFIG_MTK_MAP
+-			wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_SAE_FAIL_RECONF);
++			wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_RECONF_FAIL);
+ #endif /* CONFIG_MTK_MAP */
+ 		}
+ 		if (res != 1)

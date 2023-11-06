@@ -1,0 +1,303 @@
+diff --git a/src/drivers/driver.h b/src/drivers/driver.h
+index eb09ad7..e426129 100644
+--- a/src/drivers/driver.h
++++ b/src/drivers/driver.h
+@@ -4086,6 +4086,17 @@ struct wpa_driver_ops {
+ 	 */
+ 	int (*radio_disable)(void *priv, int disabled);
+ 
++	/**
++	 * seq_num - set seq_num
++	 * @priv: Private driver interface data
++	 * @random_mac: 1= set SN by driver 0=Set SN to random +delta
++	 * Returns: 0 on success, -1 on failure
++	 *
++	 * This optional command is for testing purposes. It can be used to
++	 * disable the radio on a testbed device to simulate out-of-radio-range
++	 * conditions.
++	 */
++	int (*seq_num)(void *priv, int seq_num);
+ 	/**
+ 	 * switch_channel - Announce channel switch and migrate the GO to the
+ 	 * given frequency
+diff --git a/src/drivers/driver_nl80211.c b/src/drivers/driver_nl80211.c
+index d86e248..c691712 100644
+--- a/src/drivers/driver_nl80211.c
++++ b/src/drivers/driver_nl80211.c
+@@ -11149,10 +11149,48 @@ static int nl80211_set_mac_addr(void *priv, const u8 *addr)
+ 	struct i802_bss *bss = priv;
+ 	struct wpa_driver_nl80211_data *drv = bss->drv;
+ 	int new_addr = addr != NULL;
++#ifdef SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
++	struct nl_msg *msg = NULL;
++	struct nlattr *attr;
++	int ret;
++#endif
+ 
+ 	if (TEST_FAIL())
+ 		return -1;
++#ifdef SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
++	if (drv->nlmode == NL80211_IFTYPE_STATION) {
++		if (!addr){
++			addr = drv->perm_addr;
++		}
++	if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
++			nla_put_u32(msg, NL80211_ATTR_VENDOR_ID, OUI_MTK) ||
++			nla_put_u32(msg, NL80211_ATTR_VENDOR_SUBCMD, MTK_NL80211_VENDOR_SUBCMD_SET_MAC))
++			goto fail;
++
++	attr = nla_nest_start(msg, NL80211_ATTR_VENDOR_DATA);
++	if (!attr)
++		goto fail;
++
++	if (nla_put(msg, MTK_NL80211_VENDOR_ATTR_SET_STA_MAC, ETH_ALEN, addr ))
++		goto fail;
++
++	nla_nest_end(msg, attr);
+ 
++	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
++	if (ret)
++		wpa_printf(MSG_ERROR, "nl80211:set mac failed err=%d",
++			ret);
++	wpa_printf(MSG_DEBUG, "nl80211: set_mac_addr for %s to " MACSTR,
++		bss->ifname, MAC2STR(addr));
++	drv->addr_changed = new_addr;
++	os_memcpy(bss->addr, addr, ETH_ALEN);
++	return ret;
++	}
++
++fail:
++	nlmsg_free(msg);
++	return ret;
++#else
+ 	if (!addr)
+ 		addr = drv->perm_addr;
+ 
+@@ -11184,7 +11222,47 @@ static int nl80211_set_mac_addr(void *priv, const u8 *addr)
+ 	}
+ 
+ 	return 0;
++#endif
+ }
++#ifdef SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
++static int nl80211_set_seq_num(void *priv, int seq_num)
++{
++	struct i802_bss *bss = priv;
++	struct wpa_driver_nl80211_data *drv = bss->drv;
++	struct nl_msg *msg = NULL;
++	struct nlattr *attr;
++	int ret;
++
++	if (TEST_FAIL())
++		return -1;
++
++	if (drv->nlmode == NL80211_IFTYPE_STATION) {
++		if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
++			nla_put_u32(msg, NL80211_ATTR_VENDOR_ID, OUI_MTK) ||
++			nla_put_u32(msg, NL80211_ATTR_VENDOR_SUBCMD, MTK_NL80211_VENDOR_SUBCMD_SEQ_NUM))
++		goto fail;
++
++	attr = nla_nest_start(msg, NL80211_ATTR_VENDOR_DATA);
++	if (!attr)
++		goto fail;
++
++	if (nla_put_u8(msg, MTK_NL80211_VENDOR_ATTR_SET_SEQ_NUM, (u8)seq_num ))
++		goto fail;
++
++	nla_nest_end(msg, attr);
++
++	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
++	if (ret)
++		wpa_printf(MSG_ERROR, "nl80211:seq_num set failed=%d",
++			ret);
++	return ret;
++	}
++
++fail:
++	nlmsg_free(msg);
++	return ret;
++}
++#endif
+ 
+ 
+ #ifdef CONFIG_MESH
+@@ -13096,4 +13174,7 @@ const struct wpa_driver_ops wpa_driver_nl80211_ops = {
+ #ifdef CONFIG_MTK_IEEE80211BE
+ 	.get_bss_mlo_info = wpa_driver_nl80211_get_bss_mlo_info,
+ #endif
++#ifdef SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
++	.seq_num = nl80211_set_seq_num,
++#endif
+ };
+diff --git a/wpa_supplicant/Makefile b/wpa_supplicant/Makefile
+index be8026e..3978748 100644
+--- a/wpa_supplicant/Makefile
++++ b/wpa_supplicant/Makefile
+@@ -1824,6 +1824,10 @@ OBJS += autoscan_periodic.o
+ NEED_AUTOSCAN=y
+ endif
+ 
++ifdef CONFIG_PE
++CFLAGS += -DCONFIG_PE
++CFLAGS += -DSUPP_RANDOM_MAC_IN_DRIVER_SUPPORT
++endif
+ ifdef NEED_AUTOSCAN
+ CFLAGS += -DCONFIG_AUTOSCAN
+ OBJS += autoscan.o
+diff --git a/wpa_supplicant/config.c b/wpa_supplicant/config.c
+index f9880ed..481dda3 100644
+--- a/wpa_supplicant/config.c
++++ b/wpa_supplicant/config.c
+@@ -2739,6 +2739,7 @@ static const struct parse_data ssid_fields[] = {
+ 	{ STR_RANGE(roaming_consortium_selection, 0, MAX_ROAMING_CONS_OI_LEN) },
+ #endif /* CONFIG_HS20 */
+ 	{ INT_RANGE(mac_addr, 0, 2) },
++	{ INT_RANGE(seq_num, 0, 1) },
+ 	{ INT_RANGE(pbss, 0, 2) },
+ 	{ INT_RANGE(wps_disabled, 0, 1) },
+ 	{ INT_RANGE(fils_dh_group, 0, 65535) },
+@@ -3277,6 +3278,7 @@ void wpa_config_set_network_defaults(struct wpa_ssid *ssid)
+ #endif /* CONFIG_MACSEC */
+ 	ssid->mac_addr = -1;
+ 	ssid->max_oper_chwidth = DEFAULT_MAX_OPER_CHWIDTH;
++	ssid->seq_num = 0;
+ }
+ 
+ 
+@@ -3346,6 +3348,12 @@ int wpa_config_set(struct wpa_ssid *ssid, const char *var, const char *value,
+ 		}
+ #endif /* CONFIG_SAE */
+ 		break;
++#ifdef CONFIG_PE
++		if (os_strcmp(var, "mac_addr") == 0) {
++			ssid->mac_addr = atoi(value);
++		}
++#endif /* CONFIG_PE */
++		break;
+ 	}
+ 	if (i == NUM_SSID_FIELDS) {
+ 		if (removed_field(var)) {
+diff --git a/wpa_supplicant/config.h b/wpa_supplicant/config.h
+index 8b8be2a..408e72d 100644
+--- a/wpa_supplicant/config.h
++++ b/wpa_supplicant/config.h
+@@ -37,7 +37,7 @@
+ #define DEFAULT_ACCESS_NETWORK_TYPE 15
+ #define DEFAULT_SCAN_CUR_FREQ 0
+ #define DEFAULT_P2P_SEARCH_DELAY 500
+-#define DEFAULT_RAND_ADDR_LIFETIME 60
++#define DEFAULT_RAND_ADDR_LIFETIME 1
+ #define DEFAULT_KEY_MGMT_OFFLOAD 1
+ #define DEFAULT_CERT_IN_CB 1
+ #define DEFAULT_P2P_GO_CTWINDOW 0
+diff --git a/wpa_supplicant/config_ssid.h b/wpa_supplicant/config_ssid.h
+index 9a389cc..84ad015 100644
+--- a/wpa_supplicant/config_ssid.h
++++ b/wpa_supplicant/config_ssid.h
+@@ -978,6 +978,15 @@ struct wpa_ssid {
+ 	 */
+ 	int mac_addr;
+ 
++	/**
++	 * seq_num - SEQ_Num  policy
++	 *
++	 * 0 = Current SN +Delta
++	 * 1 = Set SN by driver
++	 *
++	 */
++	int seq_num;
++
+ 	/**
+ 	 * no_auto_peer - Do not automatically peer with compatible mesh peers
+ 	 *
+diff --git a/wpa_supplicant/ctrl_iface.c b/wpa_supplicant/ctrl_iface.c
+index 0d65792..169a24b 100644
+--- a/wpa_supplicant/ctrl_iface.c
++++ b/wpa_supplicant/ctrl_iface.c
+@@ -3590,6 +3590,7 @@ static int wpa_supplicant_ctrl_iface_update_network(
+ 	char *name, char *value)
+ {
+ 	int ret;
++	int seq_num = 0;
+ 
+ 	ret = wpa_config_set(ssid, name, value, 0);
+ 	if (ret < 0) {
+@@ -3613,6 +3614,15 @@ static int wpa_supplicant_ctrl_iface_update_network(
+ 		return 0;
+ 	}
+ #endif /* CONFIG_BGSCAN */
++#if defined (CONFIG_PE) && defined(SUPP_RANDOM_MAC_IN_DRIVER_SUPPORT)
++	if (os_strcmp(name, "seq_num") == 0) {
++		seq_num = atoi(value);
++		if (wpa_drv_set_seq_num(wpa_s, seq_num) < 0 ) {
++			wpa_printf(MSG_ERROR, "set wpa_drv_set_seq_num Failed\n");
++			return -1;
++		}
++	}
++#endif
+ 
+ 	if (os_strcmp(name, "bssid") != 0 &&
+ 	    os_strcmp(name, "bssid_hint") != 0 &&
+diff --git a/wpa_supplicant/driver_i.h b/wpa_supplicant/driver_i.h
+index 908e5d0..d24bd47 100644
+--- a/wpa_supplicant/driver_i.h
++++ b/wpa_supplicant/driver_i.h
+@@ -628,6 +628,13 @@ static inline int wpa_drv_radio_disable(struct wpa_supplicant *wpa_s,
+ 	return wpa_s->driver->radio_disable(wpa_s->drv_priv, disabled);
+ }
+ 
++static inline int wpa_drv_set_seq_num(struct wpa_supplicant *wpa_s,
++					int seq_num)
++{
++	if (!wpa_s->driver->seq_num)
++		return -1;
++	return wpa_s->driver->seq_num(wpa_s->drv_priv, seq_num);
++}
+ static inline int wpa_drv_switch_channel(struct wpa_supplicant *wpa_s,
+ 					 struct csa_settings *settings)
+ {
+diff --git a/wpa_supplicant/wpa_supplicant.c b/wpa_supplicant/wpa_supplicant.c
+index cc24d20..9ea1db5 100644
+--- a/wpa_supplicant/wpa_supplicant.c
++++ b/wpa_supplicant/wpa_supplicant.c
+@@ -2324,7 +2324,16 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
+ 
+ 	if (wpa_s->last_ssid == ssid) {
+ 		wpa_dbg(wpa_s, MSG_DEBUG, "Re-association to the same ESS");
++#ifdef CONFIG_PE
++		if(wpa_s->tempssid && ssid->mac_addr >= 1) {
++			if (os_memcmp(wpa_s->tempssid , bss->ssid, bss->ssid_len) == 0)
++				wpa_s->reassoc_same_ess = 1;
++			else
++				wpa_s->reassoc_same_ess = 0;
++		}
++#else
+ 		wpa_s->reassoc_same_ess = 1;
++#endif
+ 		if (wpa_s->current_bss && wpa_s->current_bss == bss) {
+ 			wmm_ac_save_tspecs(wpa_s);
+ 			wpa_s->reassoc_same_bss = 1;
+@@ -2350,6 +2359,9 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
+ 	}
+ 	wpa_s->last_ssid = ssid;
+ 
++#ifdef CONFIG_PE
++	os_memcpy(wpa_s->tempssid, bss->ssid, bss->ssid_len);
++#endif
+ #ifdef CONFIG_IBSS_RSN
+ 	ibss_rsn_deinit(wpa_s->ibss_rsn);
+ 	wpa_s->ibss_rsn = NULL;
+diff --git a/wpa_supplicant/wpa_supplicant_i.h b/wpa_supplicant/wpa_supplicant_i.h
+index 433f075..b8d1773 100644
+--- a/wpa_supplicant/wpa_supplicant_i.h
++++ b/wpa_supplicant/wpa_supplicant_i.h
+@@ -1577,6 +1577,9 @@ struct wpa_supplicant {
+ 	unsigned int enable_dscp_policy_capa:1;
+ 	unsigned int connection_dscp:1;
+ 	unsigned int wait_for_dscp_req:1;
++#ifdef CONFIG_PE
++	u8 tempssid[SSID_MAX_LEN];
++#endif
+ };
+ 
+ 

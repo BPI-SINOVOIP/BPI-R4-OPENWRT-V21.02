@@ -1,0 +1,45 @@
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -315,7 +315,7 @@ NEED_DRAGONFLY=y
+ endif
+ 
+ ifdef CONFIG_OWE
+-CFLAGS += -DCONFIG_OWE
++CFLAGS += -DCONFIG_OWE -DHOSTAPD_OWE_SUPPORT
+ NEED_ECC=y
+ NEED_HMAC_SHA256_KDF=y
+ NEED_HMAC_SHA384_KDF=y
+--- a/src/drivers/driver_nl80211.c
++++ b/src/drivers/driver_nl80211.c
+@@ -2688,6 +2688,15 @@ static int nl80211_mgmt_subscribe_ap_dev
+ 					   false) < 0)
+ 			wpa_printf(MSG_DEBUG,
+ 				   "nl80211: Failed to subscribe to handle Authentication frames - SAE offload may not work");
++
++#ifdef HOSTAPD_OWE_SUPPORT
++		/* Register for assoc req frames owe mode*/
++		type = (WLAN_FC_TYPE_MGMT << 2) | (WLAN_FC_STYPE_ASSOC_REQ << 4);
++		if (nl80211_register_frame(bss, bss->nl_mgmt, type, NULL, 0,
++					   false) < 0)
++			wpa_printf(MSG_DEBUG,
++				   "nl80211: Failed to subscribe to handle assoc req frames - SAE offload may not work");
++#endif
+ 	}
+ 
+ 	nl80211_mgmt_handle_register_eloop(bss);
+
+Index: hostapd-2022-05-08-b859b9bc/src/ap/ieee802_11.c
+===================================================================
+--- hostapd-2022-05-08-b859b9bc.orig/src/ap/ieee802_11.c
++++ hostapd-2022-05-08-b859b9bc/src/ap/ieee802_11.c
+@@ -5821,7 +5821,10 @@ static void handle_assoc(struct hostapd_
+ 			ieee802_11_set_beacons(hapd->iface);
+ 	}
+ 
++/*for hostapd + logan OWE case, update_ht_state may call beacon set many times, deal to assoc resp timeout*/
++#ifndef HOSTAPD_OWE_SUPPORT
+ 	update_ht_state(hapd, sta);
++#endif
+ 
+ 	hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE80211,
+ 		       HOSTAPD_LEVEL_DEBUG,

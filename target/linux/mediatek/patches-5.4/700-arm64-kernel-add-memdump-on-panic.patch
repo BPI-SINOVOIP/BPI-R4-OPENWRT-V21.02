@@ -1,0 +1,82 @@
+--- a/arch/arm64/include/asm/memdump.h
++++ b/arch/arm64/include/asm/memdump.h
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (C) 2023 MediaTek Inc.
++ *
++ * Author: Weijie Gao <weijie.gao@mediatek.com>
++ */
++
++#ifndef _ARM64_MEMDUMP_H_
++#define _ARM64_MEMDUMP_H_
++
++void arm64_atf_memory_dump(int reboot_timeout);
++
++#endif /* _ARM64_MEMDUMP_H_ */
+--- a/arch/arm64/kernel/Makefile
++++ b/arch/arm64/kernel/Makefile
+@@ -72,3 +72,5 @@ extra-y					+= $(head-y) vmlinux.lds
+ ifeq ($(CONFIG_DEBUG_EFI),y)
+ AFLAGS_head.o += -DVMLINUX_PATH="\"$(realpath $(objtree)/vmlinux)\""
+ endif
++
++obj-y					+= memdump.o
+--- a/arch/arm64/kernel/memdump.c
++++ b/arch/arm64/kernel/memdump.c
+@@ -0,0 +1,31 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2023 MediaTek Inc.
++ *
++ * Author: Weijie Gao <weijie.gao@mediatek.com>
++ */
++
++#include <linux/arm-smccc.h>
++#include <linux/printk.h>
++
++/*
++ * MTK_SIP_EMERG_MEM_DUMP - Do emergency memory dump thru. ethernet
++ *
++ * parameters
++ * @x1:		reboot after memory dump
++ *
++ * no return
++ */
++#define MTK_SIP_EMERG_MEM_DUMP			0xC2000540
++
++void arm64_atf_memory_dump(int reboot_timeout)
++{
++	struct arm_smccc_res res;
++
++	pr_emerg("Starting Memory dump SMCC\n");
++
++	arm_smccc_smc(MTK_SIP_EMERG_MEM_DUMP, reboot_timeout,
++		      0, 0, 0, 0, 0, 0, &res);
++
++	pr_err("Memory dump SMCC failed\n");
++}
+--- a/kernel/panic.c
++++ b/kernel/panic.c
+@@ -34,6 +34,10 @@
+ #include <linux/sysfs.h>
+ #include <asm/sections.h>
+ 
++#ifdef CONFIG_ARM64
++#include <asm/memdump.h>
++#endif
++
+ #define PANIC_TIMER_STEP 100
+ #define PANIC_BLINK_SPD 18
+ 
+@@ -359,6 +363,10 @@ void panic(const char *fmt, ...)
+ 
+ 	panic_print_sys_info();
+ 
++#ifdef CONFIG_ARM64
++	arm64_atf_memory_dump(panic_timeout);
++#endif
++
+ 	if (!panic_blink)
+ 		panic_blink = no_blink;
+ 

@@ -1,0 +1,96 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+@@ -2459,7 +2459,7 @@ static int wpa_derive_ptk(struct wpa_sta
+ 
+ 			return wpa_pmk_r1_to_ptk(sm->pmk_r1, sm->pmk_r1_len,
+ 						 sm->SNonce, sm->ANonce,
+-						 sm->addr, sm->wpa_auth->addr,
++						 ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr),
+ 						 sm->pmk_r1_name,
+ 						 ptk, ptk_name,
+ 						 sm->wpa_key_mgmt,
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth_ft.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth_ft.c
+@@ -2452,28 +2452,28 @@ int wpa_auth_derive_ptk_ft(struct wpa_st
+ 	session_timeout = wpa_ft_get_session_timeout(sm->wpa_auth, sm->addr);
+ 
+ 	if (wpa_derive_pmk_r0(mpmk, mpmk_len, ssid, ssid_len, mdid,
+-			      r0kh, r0kh_len, sm->addr,
++			      r0kh, r0kh_len, ml_auth_spa(sm, sm->addr),
+ 			      pmk_r0, pmk_r0_name,
+ 			      wpa_key_mgmt_sha384(sm->wpa_key_mgmt)) < 0)
+ 		return -1;
+ 	if (!psk_local || !wpa_key_mgmt_ft_psk(sm->wpa_key_mgmt))
+-		wpa_ft_store_pmk_r0(sm->wpa_auth, sm->addr, pmk_r0, pmk_r0_len,
++		wpa_ft_store_pmk_r0(sm->wpa_auth, ml_auth_spa(sm, sm->addr), pmk_r0, pmk_r0_len,
+ 				    pmk_r0_name,
+ 				    sm->pairwise, &vlan, expires_in,
+ 				    session_timeout, identity, identity_len,
+ 				    radius_cui, radius_cui_len);
+ 
+-	if (wpa_derive_pmk_r1(pmk_r0, pmk_r0_len, pmk_r0_name, r1kh, sm->addr,
++	if (wpa_derive_pmk_r1(pmk_r0, pmk_r0_len, pmk_r0_name, r1kh, ml_auth_spa(sm, sm->addr),
+ 			      pmk_r1, sm->pmk_r1_name) < 0)
+ 		return -1;
+ 	if (!psk_local || !wpa_key_mgmt_ft_psk(sm->wpa_key_mgmt))
+-		wpa_ft_store_pmk_r1(sm->wpa_auth, sm->addr, pmk_r1, pmk_r1_len,
++		wpa_ft_store_pmk_r1(sm->wpa_auth, ml_auth_spa(sm, sm->addr), pmk_r1, pmk_r1_len,
+ 				    sm->pmk_r1_name, sm->pairwise, &vlan,
+ 				    expires_in, session_timeout, identity,
+ 				    identity_len, radius_cui, radius_cui_len);
+ 
+ 	return wpa_pmk_r1_to_ptk(pmk_r1, pmk_r1_len, sm->SNonce, sm->ANonce,
+-				 sm->addr, sm->wpa_auth->addr, sm->pmk_r1_name,
++				 ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), sm->pmk_r1_name,
+ 				 ptk, ptk_name, sm->wpa_key_mgmt, sm->pairwise,
+ 				 0);
+ }
+@@ -3188,7 +3188,7 @@ u8 * wpa_sm_write_assoc_resp_ies(struct
+ 		kck_len = sm->PTK.kck_len;
+ 	}
+ 	if (auth_alg == WLAN_AUTH_FT &&
+-	    wpa_ft_mic(kck, kck_len, sm->addr, sm->wpa_auth->addr, 6,
++	    wpa_ft_mic(kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 6,
+ 		       mdie, mdie_len, ftie, ftie_len,
+ 		       rsnie, rsnie_len,
+ 		       ric_start, ric_start ? pos - ric_start : 0,
+@@ -3561,7 +3561,7 @@ static int wpa_ft_process_auth_req(struc
+ 	wpa_hexdump(MSG_DEBUG, "FT: Requested PMKR0Name",
+ 		    parse.rsn_pmkid, WPA_PMK_NAME_LEN);
+ 	if (wpa_derive_pmk_r1_name(parse.rsn_pmkid,
+-				   sm->wpa_auth->conf.r1_key_holder, sm->addr,
++				   sm->wpa_auth->conf.r1_key_holder, ml_auth_spa(sm, sm->addr),
+ 				   pmk_r1_name, use_sha384) < 0)
+ 		return WLAN_STATUS_UNSPECIFIED_FAILURE;
+ 
+@@ -3574,7 +3574,7 @@ static int wpa_ft_process_auth_req(struc
+ 			return WLAN_STATUS_INVALID_PMKID;
+ 		wpa_printf(MSG_DEBUG,
+ 			   "FT: Generated PMK-R1 for FT-PSK locally");
+-	} else if (wpa_ft_fetch_pmk_r1(sm->wpa_auth, sm->addr, pmk_r1_name,
++	} else if (wpa_ft_fetch_pmk_r1(sm->wpa_auth, ml_auth_spa(sm, sm->addr), pmk_r1_name,
+ 				       pmk_r1, &pmk_r1_len, &pairwise, &vlan,
+ 				       &identity, &identity_len, &radius_cui,
+ 				       &radius_cui_len, &session_timeout) < 0) {
+@@ -3629,7 +3629,7 @@ pmk_r1_derived:
+ 		kdk_len = 0;
+ 
+ 	if (wpa_pmk_r1_to_ptk(pmk_r1, pmk_r1_len, sm->SNonce, sm->ANonce,
+-			      sm->addr, sm->wpa_auth->addr, pmk_r1_name,
++			      ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), pmk_r1_name,
+ 			      &sm->PTK, ptk_name, sm->wpa_key_mgmt,
+ 			      pairwise, kdk_len) < 0)
+ 		return WLAN_STATUS_UNSPECIFIED_FAILURE;
+@@ -3917,7 +3917,7 @@ int wpa_ft_validate_reassoc(struct wpa_s
+ 		kck = sm->PTK.kck;
+ 		kck_len = sm->PTK.kck_len;
+ 	}
+-	if (wpa_ft_mic(kck, kck_len, sm->addr, sm->wpa_auth->addr, 5,
++	if (wpa_ft_mic(kck, kck_len, ml_auth_spa(sm, sm->addr), ml_auth_aa(sm, sm->wpa_auth->addr), 5,
+ 		       parse.mdie - 2, parse.mdie_len + 2,
+ 		       parse.ftie - 2, parse.ftie_len + 2,
+ 		       parse.rsn - 2, parse.rsn_len + 2,

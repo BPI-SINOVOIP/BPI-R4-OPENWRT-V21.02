@@ -1,0 +1,65 @@
+From a2bd3309c6c1ea4d63d8ac3fc066914186740ab5 Mon Sep 17 00:00:00 2001
+From: mtk27745 <rex.lu@mediatek.com>
+Date: Fri, 6 Oct 2023 15:48:37 +0800
+Subject: [PATCH 70/98] wifi: mt76: mt7996: add rro elem free when rmmod wifi
+ module
+
+---
+ mt7996/init.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 5627605..1ece390 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -670,6 +670,38 @@ void mt7996_wfsys_reset(struct mt7996_dev *dev)
+ 	msleep(20);
+ }
+ 
++static int mt7996_rro_free(struct mt7996_dev *dev)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(dev->wed_rro.ba_bitmap); i++) {
++		if (dev->wed_rro.ba_bitmap[i].ptr)
++			dmam_free_coherent(dev->mt76.dma_dev,
++					   MT7996_RRO_BA_BITMAP_CR_SIZE,
++					   dev->wed_rro.ba_bitmap[i].ptr,
++					   dev->wed_rro.ba_bitmap[i].phy_addr);
++	}
++
++	for (i = 0; i < ARRAY_SIZE(dev->wed_rro.addr_elem); i++) {
++		if (dev->wed_rro.addr_elem[i].ptr) {
++			dmam_free_coherent(dev->mt76.dma_dev,
++					   MT7996_RRO_WINDOW_MAX_SIZE *
++					   sizeof(struct mt7996_wed_rro_addr),
++					   dev->wed_rro.addr_elem[i].ptr,
++					   dev->wed_rro.addr_elem[i].phy_addr);
++		}
++	}
++
++	if (dev->wed_rro.session.ptr)
++		dmam_free_coherent(dev->mt76.dma_dev,
++				   MT7996_RRO_WINDOW_MAX_LEN *
++				   sizeof(struct mt7996_wed_rro_addr),
++				   dev->wed_rro.session.ptr,
++				   dev->wed_rro.session.phy_addr);
++
++	return 0;
++}
++
+ static int mt7996_wed_rro_init(struct mt7996_dev *dev)
+ {
+ #ifdef CONFIG_NET_MEDIATEK_SOC_WED
+@@ -1295,6 +1327,8 @@ void mt7996_unregister_device(struct mt7996_dev *dev)
+ 	mt7996_coredump_unregister(dev);
+ 	mt76_unregister_device(&dev->mt76);
+ 	mt7996_mcu_exit(dev);
++	if (mtk_wed_device_active(&dev->mt76.mmio.wed) && dev->has_rro)
++		mt7996_rro_free(dev);
+ 	mt7996_tx_token_put(dev);
+ 	mt7996_dma_cleanup(dev);
+ 	tasklet_disable(&dev->mt76.irq_tasklet);
+-- 
+2.18.0
+

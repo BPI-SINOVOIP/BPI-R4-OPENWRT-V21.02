@@ -1,0 +1,22 @@
+Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/bssid_ignore.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/wpa_supplicant/bssid_ignore.c
++++ hostapd-2022-07-29-b704dc72/wpa_supplicant/bssid_ignore.c
+@@ -75,13 +75,13 @@ int wpa_bssid_ignore_add(struct wpa_supp
+ 	if (e) {
+ 		e->start = now;
+ 		e->count++;
+-		if (e->count > 5)
++		if (e->count > 15)
+ 			e->timeout_secs = 1800;
+-		else if (e->count == 5)
++		else if (e->count == 15)
+ 			e->timeout_secs = 600;
+-		else if (e->count == 4)
++		else if (e->count == 14)
+ 			e->timeout_secs = 120;
+-		else if (e->count == 3)
++		else if (e->count == 13)
+ 			e->timeout_secs = 60;
+ 		else
+ 			e->timeout_secs = 10;

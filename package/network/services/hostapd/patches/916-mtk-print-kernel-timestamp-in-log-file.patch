@@ -1,0 +1,35 @@
+From 4f3167774c97e990eaf1682f842d946c040c4fc3 Mon Sep 17 00:00:00 2001
+From: Amit Khatri <amit.khatri@mediatek.com>
+Date: Thu, 12 May 2022 20:22:36 +0800
+Subject: [PATCH] print kernel timestamp in log file
+
+Some time during debugging we need to match driver and
+hostapd logs.
+
+Signed-off-by: Amit Khatri <amit.khatri@mediatek.com>
+---
+ src/utils/wpa_debug.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/utils/wpa_debug.c b/src/utils/wpa_debug.c
+index a887d60..90d5a26 100644
+--- a/src/utils/wpa_debug.c
++++ b/src/utils/wpa_debug.c
+@@ -69,12 +69,12 @@ static int wpa_to_android_level(int level)
+ void wpa_debug_print_timestamp(void)
+ {
+ #ifndef CONFIG_ANDROID_LOG
+-	struct os_time tv;
++	struct os_reltime tv;
+ 
+ 	if (!wpa_debug_timestamp)
+ 		return;
+ 
+-	os_get_time(&tv);
++	os_get_reltime(&tv);
+ #ifdef CONFIG_DEBUG_FILE
+ 	if (out_file)
+ 		fprintf(out_file, "%ld.%06u: ", (long) tv.sec,
+-- 
+2.18.0
+

@@ -1,0 +1,47 @@
+From 900d6f16849bcc9d1cd6c0794da1d6d9a63ad11e Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Thu, 2 Mar 2023 10:07:05 +0800
+Subject: [PATCH] Add support to set control and center freq for 6G
+ BW320
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ phy.c  | 4 ++--
+ util.c | 1 +
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/phy.c b/phy.c
+index 2d489ef..4fa66b7 100644
+--- a/phy.c
++++ b/phy.c
+@@ -200,13 +200,13 @@ static int handle_freq(struct nl80211_state *state, struct nl_msg *msg,
+ 
+ COMMAND(set, freq,
+ 	"<freq> [NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz|160MHz]\n"
+-	"<control freq> [5|10|20|40|80|80+80|160] [<center1_freq> [<center2_freq>]]",
++	"<control freq> [5|10|20|40|80|80+80|160|320] [<center1_freq> [<center2_freq>]]",
+ 	NL80211_CMD_SET_WIPHY, 0, CIB_PHY, handle_freq,
+ 	"Set frequency/channel the hardware is using, including HT\n"
+ 	"configuration.");
+ COMMAND(set, freq,
+ 	"<freq> [NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz|160MHz]\n"
+-	"<control freq> [5|10|20|40|80|80+80|160] [<center1_freq> [<center2_freq>]]",
++	"<control freq> [5|10|20|40|80|80+80|160|320] [<center1_freq> [<center2_freq>]]",
+ 	NL80211_CMD_SET_WIPHY, 0, CIB_NETDEV, handle_freq, NULL);
+ 
+ static int handle_chan(struct nl80211_state *state, struct nl_msg *msg,
+diff --git a/util.c b/util.c
+index 8a2ba10..93269ab 100644
+--- a/util.c
++++ b/util.c
+@@ -471,6 +471,7 @@ enum nl80211_chan_width str_to_bw(const char *str)
+ 		{ .name = "80", .val = NL80211_CHAN_WIDTH_80, },
+ 		{ .name = "80+80", .val = NL80211_CHAN_WIDTH_80P80, },
+ 		{ .name = "160", .val = NL80211_CHAN_WIDTH_160, },
++		{ .name = "320", .val = NL80211_CHAN_WIDTH_320, },
+ 	};
+ 	unsigned int i;
+ 
+-- 
+2.18.0
+

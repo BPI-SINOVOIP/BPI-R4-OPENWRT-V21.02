@@ -1,0 +1,15 @@
+diff --git a/src/wps/wps_registrar.c b/src/wps/wps_registrar.c
+index 2df534e..d0fd8ee 100644
+--- a/src/wps/wps_registrar.c
++++ b/src/wps/wps_registrar.c
+@@ -2129,7 +2129,9 @@ static struct wpabuf * wps_build_m8(struct wps_data *wps)
+ 	wpabuf_clear_free(plain);
+ 
+ #ifdef CONFIG_MTK_MAP
+-	wpa_msg(((struct hostapd_data *)wps->wps->cb_ctx)->msg_ctx, MSG_INFO, WPS_EVENT_EAPOL_COMPLETE);
++	wpa_msg(((struct hostapd_data *)wps->wps->cb_ctx)->msg_ctx, MSG_INFO,
++		WPS_EVENT_EAPOL_COMPLETE MACSTR " multi_ap_ext=%u",
++		MAC2STR(wps->mac_addr_e), wps->peer_dev.multi_ap_ext);
+ #endif /* CONFIG_MTK_MAP */
+ 
+ 	wps->state = RECV_DONE;

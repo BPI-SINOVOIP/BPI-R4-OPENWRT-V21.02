@@ -1,0 +1,17 @@
+diff --git a/src/ml/ml_supplicant.c b/src/ml/ml_supplicant.c
+index 9b93ecb..b57eb2d 100644
+--- a/src/ml/ml_supplicant.c
++++ b/src/ml/ml_supplicant.c
+@@ -795,12 +795,6 @@ int ml_validate_m3_kde(struct wpa_sm *sm, const struct wpa_eapol_key *key,
+ 		return -1;
+ 	}
+ 
+-	if (ie->mlo_bigtk.num > 0 && !sm->beacon_prot) {
+-		wpa_printf(MSG_INFO,
+-			"ML: EAPOL-Key 3/4 MLO BIGTK IE in unencrypted key data");
+-		return -1;
+-	}
+-
+ 	for (i = 0; i < ie->mlo_bigtk.num; i++) {
+ 		struct wpa_mlo_bigtk_kde *mlo_bigtk =
+ 			(struct wpa_mlo_bigtk_kde *) ie->mlo_bigtk.kdes[i].data;

@@ -1,0 +1,26 @@
+diff --git a/hostapd/Makefile b/hostapd/Makefile
+index de6b7f0..46a01f3 100644
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -331,6 +331,7 @@ CFLAGS += -DCONFIG_MTK_IEEE80211BE
+ OBJS += ../src/ml/ml_common.o
+ OBJS += ../src/drivers/mediatek_driver_cmd_nl80211.o
+ CFLAGS += -DHOSTAPD_PMKID_IN_DRIVER_SUPPORT
++CFLAGS += -DCONFIG_MTK_PASSPOINT
+ 
+ ifdef CONFIG_AIRTIME_POLICY
+ CFLAGS += -DCONFIG_AIRTIME_POLICY
+diff --git a/src/ap/ieee802_1x.c b/src/ap/ieee802_1x.c
+index 7854de1..c27bf5b 100644
+--- a/src/ap/ieee802_1x.c
++++ b/src/ap/ieee802_1x.c
+@@ -1725,7 +1725,9 @@ static void ieee802_1x_hs20_deauth_req(struct hostapd_data *hapd,
+ 		wpabuf_put_u8(sta->hs20_deauth_req, len - 3);
+ 		wpabuf_put_data(sta->hs20_deauth_req, pos + 3, len - 3);
+ 	}
++#ifndef CONFIG_MTK_PASSPOINT
+ 	ap_sta_session_timeout(hapd, sta, hapd->conf->hs20_deauth_req_timeout);
++#endif
+ }
+ 
+ 

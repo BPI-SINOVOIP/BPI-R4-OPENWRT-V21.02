@@ -1,0 +1,204 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.c
++++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.c
+@@ -304,6 +304,39 @@ int hostapd_reload_config(struct hostapd
+ 	if (newconf == NULL)
+ 		return -1;
+ 
++	for (j = 1; j < iface->num_bss; j++) {
++		struct hostapd_config *new_bss_conf = NULL;
++		struct hostapd_bss_config **tmp_conf;
++
++		if (iface->bss_config_fname[j] == NULL)
++			continue;
++
++		new_bss_conf = iface->interfaces->config_read_cb(iface->bss_config_fname[j]);
++		if (new_bss_conf == NULL)
++			continue;
++
++		if (new_bss_conf->num_bss <= 0) {
++			hostapd_config_free(new_bss_conf);
++			continue;
++		}
++
++		tmp_conf = os_realloc_array(
++			newconf->bss, newconf->num_bss + new_bss_conf->num_bss,
++			sizeof(struct hostapd_bss_config *));
++		if (tmp_conf == NULL) {
++			hostapd_config_free(new_bss_conf);
++			continue;
++		}
++		newconf->bss = tmp_conf;
++		newconf->last_bss = tmp_conf[0];
++
++		newconf->bss[newconf->num_bss] = new_bss_conf->bss[0];
++		newconf->num_bss++;
++		new_bss_conf->num_bss--;
++		new_bss_conf->bss[0] = NULL;
++		hostapd_config_free(new_bss_conf);
++	}
++
+ 	oldconf = hapd->iconf;
+ 	if (hostapd_iface_conf_changed(newconf, oldconf)) {
+ 		char *fname;
+@@ -635,7 +668,8 @@ void hostapd_cleanup_iface_partial(struc
+  */
+ static void hostapd_cleanup_iface(struct hostapd_iface *iface)
+ {
+-	wpa_printf(MSG_DEBUG, "%s(%p)", __func__, iface);
++	int i;
++
+ 	eloop_cancel_timeout(channel_list_update_timeout, iface, NULL);
+ 	eloop_cancel_timeout(hostapd_interface_setup_failure_handler, iface,
+ 			     NULL);
+@@ -644,6 +678,14 @@ static void hostapd_cleanup_iface(struct
+ 	hostapd_config_free(iface->conf);
+ 	iface->conf = NULL;
+ 
++	for (i = 0; i < iface->num_bss; i++) {
++		if (iface->bss_config_fname[i]) {
++			os_free(iface->bss_config_fname[i]);
++			iface->bss_config_fname[i] = NULL;
++		}
++	}
++	os_free(iface->bss_config_fname);
++	iface->bss_config_fname = NULL;
+ 	os_free(iface->config_fname);
+ 	os_free(iface->bss);
+ 	wpa_printf(MSG_DEBUG, "%s: free iface=%p", __func__, iface);
+@@ -2632,6 +2674,11 @@ struct hostapd_iface * hostapd_init(stru
+ 	if (hapd_iface->bss == NULL)
+ 		goto fail;
+ 
++	hapd_iface->bss_config_fname = os_calloc(conf->num_bss,
++				    sizeof(char *));
++	if (hapd_iface->bss_config_fname == NULL)
++		goto fail;
++
+ 	for (i = 0; i < conf->num_bss; i++) {
+ 		hapd = hapd_iface->bss[i] =
+ 			hostapd_alloc_bss_data(hapd_iface, conf,
+@@ -2648,6 +2695,8 @@ fail:
+ 		   config_file);
+ 	if (conf)
+ 		hostapd_config_free(conf);
++	if (hapd_iface->bss_config_fname)
++		os_free(hapd_iface->bss_config_fname);
+ 	if (hapd_iface) {
+ 		os_free(hapd_iface->config_fname);
+ 		os_free(hapd_iface->bss);
+@@ -2714,6 +2763,7 @@ hostapd_interface_init_bss(struct hapd_i
+ 		struct hostapd_data **tmp_bss;
+ 		struct hostapd_bss_config *bss;
+ 		const char *ifname;
++		char **tmp_bss_config_fname;
+ 
+ 		/* Add new BSS to existing iface */
+ 		conf = interfaces->config_read_cb(config_fname);
+@@ -2751,6 +2801,17 @@ hostapd_interface_init_bss(struct hapd_i
+ 		bss = iface->conf->bss[iface->conf->num_bss] = conf->bss[0];
+ 		iface->conf->num_bss++;
+ 
++		tmp_bss_config_fname = os_realloc_array(
++			iface->bss_config_fname, iface->num_bss + 1,
++			sizeof(char *));
++		if (tmp_bss_config_fname == NULL) {
++			wpa_printf(MSG_ERROR, "alloc temp bss config file name failed");
++			hostapd_config_free(conf);
++			return NULL;
++		}
++		tmp_bss_config_fname[iface->num_bss] = os_strdup(config_fname);
++		iface->bss_config_fname = tmp_bss_config_fname;
++
+ 		hapd = hostapd_alloc_bss_data(iface, iface->conf, bss);
+ 		if (hapd == NULL) {
+ 			iface->conf->num_bss--;
+@@ -3153,6 +3214,7 @@ int hostapd_add_iface(struct hapd_interf
+ 				os_free(hapd);
+ 				return -1;
+ 			}
++			hostapd_init_wps_complete(hapd);
+ 		}
+ 		hostapd_owe_update_trans(hapd_iface);
+ 		return 0;
+Index: hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wps_hostapd.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wps_hostapd.c
+@@ -461,6 +461,7 @@ static int hapd_wps_cred_cb(struct hosta
+ 	int multi_bss;
+ 	int wpa;
+ 	int pmf_changed = 0;
++	char *conf_name = NULL;
+ 
+ 	if (hapd->wps == NULL)
+ 		return 0;
+@@ -526,19 +527,28 @@ static int hapd_wps_cred_cb(struct hosta
+ 		os_memcpy(hapd->wps->network_key, cred->key, cred->key_len);
+ 	}
+ 	hapd->wps->wps_state = WPS_STATE_CONFIGURED;
++	for (i = 0; i < hapd->iface->num_bss; i++) {
++		if (hapd->iface && hapd->iface->bss[i] && hapd->iface->bss[i] == hapd) {
++			conf_name = hapd->iface->bss_config_fname[i];
++			break;
++		}
++	}
++	if (conf_name == NULL)
++		conf_name = hapd->iface->config_fname;
+ 
+-	if (hapd->iface->config_fname == NULL)
++	if (conf_name == NULL)
+ 		return hapd_wps_reconfig_in_memory(hapd, cred);
+-	len = os_strlen(hapd->iface->config_fname) + 5;
++	len = os_strlen(conf_name) + 5;
++
+ 	tmp_fname = os_malloc(len);
+ 	if (tmp_fname == NULL)
+ 		return -1;
+-	os_snprintf(tmp_fname, len, "%s-new", hapd->iface->config_fname);
+ 
+-	oconf = fopen(hapd->iface->config_fname, "r");
++	os_snprintf(tmp_fname, len, "%s-new", conf_name);
++	oconf = fopen(conf_name, "r");
+ 	if (oconf == NULL) {
+ 		wpa_printf(MSG_WARNING, "WPS: Could not open current "
+-			   "configuration file");
++			   "configuration file:%s", conf_name);
+ 		os_free(tmp_fname);
+ 		return -1;
+ 	}
+@@ -610,12 +620,6 @@ static int hapd_wps_cred_cb(struct hosta
+ 			fprintf(nconf, "%sSAE", prefix);
+ 			sae_only = 1;
+ 		}
+-		if (hapd->conf->wps_cred_add_sae &&
+-		    (cred->auth_type & WPS_AUTH_WPA2PSK) &&
+-		    cred->key_len != 2 * PMK_LEN) {
+-			fprintf(nconf, "%sSAE", prefix);
+-			sae = 1;
+-		}
+ 		fprintf(nconf, "\n");
+ 
+ 		if (sae && hapd->conf->ieee80211w == NO_MGMT_FRAME_PROTECTION) {
+@@ -704,7 +708,7 @@ static int hapd_wps_cred_cb(struct hosta
+ 	fclose(nconf);
+ 	fclose(oconf);
+ 
+-	if (rename(tmp_fname, hapd->iface->config_fname) < 0) {
++	if (rename(tmp_fname, conf_name) < 0) {
+ 		wpa_printf(MSG_WARNING, "WPS: Failed to rename the updated "
+ 			   "configuration file: %s", strerror(errno));
+ 		os_free(tmp_fname);
+Index: hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/hostapd.h
++++ hostapd-2022-07-29-b704dc72/src/ap/hostapd.h
+@@ -674,6 +674,7 @@ struct hostapd_iface {
+ 
+ 	int (*enable_iface_cb)(struct hostapd_iface *iface);
+ 	int (*disable_iface_cb)(struct hostapd_iface *iface);
++	char **bss_config_fname;
+ };
+ 
+ /* hostapd.c */

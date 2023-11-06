@@ -1,0 +1,183 @@
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -2316,6 +2316,7 @@ static int mtk_poll_rx(struct napi_struc
+ 
+ 		skb_hnat_alg(skb) = 0;
+ 		skb_hnat_filled(skb) = 0;
++		skb_hnat_set_cdrt(skb, 0);
+ 		skb_hnat_magic_tag(skb) = HNAT_MAGIC_TAG;
+ 		skb_hnat_set_tops(skb, 0);
+ 		skb_hnat_set_is_decap(skb, 0);
+--- a/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
++++ b/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
+@@ -1076,6 +1076,9 @@ static unsigned int hnat_ipv4_get_nextho
+ 		return 0;
+ 	}
+ 
++	if (!skb_hnat_cdrt(skb) && dst && dst_xfrm(dst))
++		return 0;
++
+ 	rcu_read_lock_bh();
+ 	nexthop = (__force u32)rt_nexthop(rt, ip_hdr(skb)->daddr);
+ 	neigh = __ipv4_neigh_lookup_noref(dev, nexthop);
+@@ -1097,7 +1100,7 @@ static unsigned int hnat_ipv4_get_nextho
+ 	 * outer header, we must update its outer mac header pointer
+ 	 * before filling outer mac or it may screw up inner mac
+ 	 */
+-	if (skb_hnat_tops(skb) && skb_hnat_is_encap(skb)) {
++	if ((skb_hnat_tops(skb) && skb_hnat_is_encap(skb)) || skb_hnat_cdrt(skb)) {
+ 		skb_push(skb, sizeof(struct ethhdr));
+ 		skb_reset_mac_header(skb);
+ 	}
+@@ -1105,7 +1108,7 @@ static unsigned int hnat_ipv4_get_nextho
+ 	memcpy(eth_hdr(skb)->h_dest, neigh->ha, ETH_ALEN);
+ 	memcpy(eth_hdr(skb)->h_source, out->dev_addr, ETH_ALEN);
+ 
+-	if (skb_hnat_tops(skb) && skb_hnat_is_encap(skb))
++	if ((skb_hnat_tops(skb) && skb_hnat_is_encap(skb)) || skb_hnat_cdrt(skb))
+ 		skb_pull(skb, sizeof(struct ethhdr));
+ 
+ 	rcu_read_unlock_bh();
+@@ -1299,6 +1302,9 @@ static inline void hnat_fill_offload_eng
+ 		 */
+ 		entry->ipv4_hnapt.tport_id = NR_TDMA_QDMA_TPORT;
+ 		entry->ipv4_hnapt.tops_entry = skb_hnat_tops(skb);
++	} else if (skb_hnat_cdrt(skb)) {
++		entry->ipv4_hnapt.tport_id = NR_EIP197_QDMA_TPORT;
++		entry->ipv4_hnapt.cdrt_id = skb_hnat_cdrt(skb);
+ 	} else {
+ 		return;
+ 	}
+@@ -1344,7 +1350,8 @@ static unsigned int skb_to_hnat_info(str
+ 	if (whnat && is_hnat_pre_filled(foe))
+ 		return 0;
+ 
+-	if (skb_hnat_tops(skb) && !(hw_path->flags & FLOW_OFFLOAD_PATH_TNL)) {
++	if ((skb_hnat_tops(skb) && !(hw_path->flags & FLOW_OFFLOAD_PATH_TNL))
++	    || (skb_hnat_cdrt(skb) && skb_dst(skb) && !dst_xfrm(skb_dst(skb)))) {
+ 		hnat_get_filled_unbind_entry(skb, &entry);
+ 		goto hnat_entry_bind;
+ 	}
+@@ -1744,7 +1751,8 @@ static unsigned int skb_to_hnat_info(str
+ 	/* Fill Layer2 Info.*/
+ 	entry = ppe_fill_L2_info(eth, entry, hw_path);
+ 
+-	if (skb_hnat_tops(skb) && hw_path->flags & FLOW_OFFLOAD_PATH_TNL)
++	if ((skb_hnat_tops(skb) && hw_path->flags & FLOW_OFFLOAD_PATH_TNL)
++	    || (!skb_hnat_cdrt(skb) && skb_dst(skb) && dst_xfrm(skb_dst(skb))))
+ 		goto hnat_entry_skip_bind;
+ 
+ hnat_entry_bind:
+@@ -1950,6 +1958,8 @@ hnat_entry_bind:
+ 
+ #if defined(CONFIG_MEDIATEK_NETSYS_V3)
+ 	hnat_fill_offload_engine_entry(skb, &entry, dev);
++	if (skb_hnat_cdrt(skb))
++		entry = ppe_fill_L2_info(eth, entry, hw_path);
+ #endif
+ 
+ hnat_entry_skip_bind:
+@@ -2227,6 +2237,7 @@ int mtk_sw_nat_hook_rx(struct sk_buff *s
+ 
+ 	skb_hnat_alg(skb) = 0;
+ 	skb_hnat_set_tops(skb, 0);
++	skb_hnat_set_cdrt(skb, 0);
+ 	skb_hnat_magic_tag(skb) = HNAT_MAGIC_TAG;
+ 
+ 	if (skb_hnat_iface(skb) == FOE_MAGIC_WED0)
+@@ -2313,7 +2324,8 @@ static unsigned int mtk_hnat_accel_type(
+ 	 * is from local_out which is also filtered in sanity check.
+ 	 */
+ 	dst = skb_dst(skb);
+-	if (dst && dst_xfrm(dst))
++	if (dst && dst_xfrm(dst)
++	    && (!mtk_crypto_offloadable || !mtk_crypto_offloadable(skb)))
+ 		return 0;
+ 
+ 	ct = nf_ct_get(skb, &ctinfo);
+@@ -2709,6 +2721,14 @@ static unsigned int mtk_hnat_nf_post_rou
+ 		}
+ 	}
+ 
++	/* we are not support protocols other than IPv4 TCP for crypto offload yet */
++	if (skb_hnat_is_decrypt(skb)
++	    && (ntohs(skb->protocol) != ETH_P_IP
++		|| ip_hdr(skb)->protocol != IPPROTO_TCP)) {
++		skb_hnat_alg(skb) = 1;
++		return 0;
++	}
++
+ 	if (!IS_LAN_GRP(out) && !IS_WAN(out) && !IS_EXT(out))
+ 		is_virt_dev = true;
+ 
+@@ -3016,7 +3036,10 @@ mtk_hnat_ipv4_nf_local_out(void *priv, s
+ 	if (iph->protocol == IPPROTO_IPV6) {
+ 		entry->udib1.pkt_type = IPV6_6RD;
+ 		hnat_set_head_frags(state, skb, 0, hnat_set_alg);
+-	} else if (!skb_hnat_tops(skb)) {
++	} else if (is_magic_tag_valid(skb)
++		   && (skb_hnat_cdrt(skb) || skb_hnat_tops(skb))) {
++		hnat_set_head_frags(state, skb, 0, hnat_set_alg);
++	} else {
+ 		hnat_set_head_frags(state, skb, 1, hnat_set_alg);
+ 	}
+ 
+--- a/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
++++ b/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h
+@@ -46,7 +46,8 @@ struct hnat_desc {
+ 	u32 amsdu : 1;
+ 	u32 tops : 6;
+ 	u32 is_decap : 1;
+-	u32 resv3 : 12;
++	u32 cdrt : 8;
++	u32 resv3 : 4;
+ 	u32 magic_tag_protect : 16;
+ } __packed;
+ #elif defined(CONFIG_MEDIATEK_NETSYS_RX_V2)
+@@ -99,12 +100,16 @@ struct hnat_desc {
+ #define skb_hnat_is_encap(skb) (!skb_hnat_is_decap(skb))
+ #define skb_hnat_set_tops(skb, tops) ((skb_hnat_tops(skb)) = (tops))
+ #define skb_hnat_set_is_decap(skb, is_decap) ((skb_hnat_is_decap(skb)) = (is_decap))
++#define skb_hnat_cdrt(skb) (((struct hnat_desc *)((skb)->head))->cdrt)
++#define skb_hnat_set_cdrt(skb, cdrt) ((skb_hnat_cdrt(skb)) = (cdrt))
+ #else /* !defined(CONFIG_MEDIATEK_NETSYS_V3) */
+ #define skb_hnat_tops(skb) (0)
+ #define skb_hnat_is_decap(skb) (0)
+ #define skb_hnat_is_encap(skb) (0)
+ #define skb_hnat_set_tops(skb, tops)
+ #define skb_hnat_set_is_decap(skb, is_decap)
++#define skb_hnat_cdrt(skb) (0)
++#define skb_hnat_set_cdrt(skb, cdrt)
+ #endif /* defined(CONFIG_MEDIATEK_NETSYS_V3) */
+ #define skb_hnat_magic(skb) (((struct hnat_desc *)(skb->head))->magic)
+ #define skb_hnat_reason(skb) (((struct hnat_desc *)(skb->head))->crsn)
+--- a/drivers/net/ethernet/mediatek/mtk_hnat/hnat.c
++++ b/drivers/net/ethernet/mediatek/mtk_hnat/hnat.c
+@@ -49,6 +49,8 @@ int (*mtk_tnl_decap_offload)(struct sk_b
+ EXPORT_SYMBOL(mtk_tnl_decap_offload);
+ bool (*mtk_tnl_decap_offloadable)(struct sk_buff *skb) = NULL;
+ EXPORT_SYMBOL(mtk_tnl_decap_offloadable);
++bool (*mtk_crypto_offloadable)(struct sk_buff *skb) = NULL;
++EXPORT_SYMBOL(mtk_crypto_offloadable);
+ 
+ static void hnat_sma_build_entry(struct timer_list *t)
+ {
+--- a/drivers/net/ethernet/mediatek/mtk_hnat/hnat.h
++++ b/drivers/net/ethernet/mediatek/mtk_hnat/hnat.h
+@@ -1087,6 +1087,8 @@ enum FoeIpAct {
+ #define NR_WDMA1_PORT 9
+ #define NR_WDMA2_PORT 13
+ #define NR_GMAC3_PORT 15
++#define NR_EIP197_TPORT 2
++#define NR_EIP197_QDMA_TPORT 3
+ #define NR_TDMA_TPORT 4
+ #define NR_TDMA_QDMA_TPORT 5
+ #define LAN_DEV_NAME hnat_priv->lan
+@@ -1233,6 +1235,7 @@ extern int qos_toggle;
+ extern int (*mtk_tnl_encap_offload)(struct sk_buff *skb);
+ extern int (*mtk_tnl_decap_offload)(struct sk_buff *skb);
+ extern bool (*mtk_tnl_decap_offloadable)(struct sk_buff *skb);
++extern bool (*mtk_crypto_offloadable)(struct sk_buff *skb);
+ 
+ int ext_if_add(struct extdev_entry *ext_entry);
+ int ext_if_del(struct extdev_entry *ext_entry);

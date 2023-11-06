@@ -1,0 +1,13 @@
+Index: rpcd-2022-02-19-8d26a1ba/iwinfo.c
+===================================================================
+--- rpcd-2022-02-19-8d26a1ba.orig/iwinfo.c
++++ rpcd-2022-02-19-8d26a1ba/iwinfo.c
+@@ -412,7 +412,7 @@ rpc_iwinfo_info(struct ubus_context *ctx
+ 	rpc_iwinfo_call_str("bssid", iw->bssid);
+ 	rpc_iwinfo_call_str("country", iw->country);
+ 
+-	rpc_iwinfo_call_int("mode", iw->mode, IWINFO_OPMODE_NAMES);
++	rpc_iwinfo_call_int("mode", iw->mode, (const char **)IWINFO_OPMODE_NAMES);
+ 	rpc_iwinfo_call_int("channel", iw->channel, NULL);
+ 	rpc_iwinfo_call_int("center_chan1", iw->center_chan1, NULL);
+ 	rpc_iwinfo_call_int("center_chan2", iw->center_chan2, NULL);

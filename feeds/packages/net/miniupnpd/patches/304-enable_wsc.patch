@@ -1,0 +1,53 @@
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/Makefile.linux
+===================================================================
+--- a/Makefile.linux
++++ b/Makefile.linux
+@@ -58,7 +58,9 @@ include $(SRCDIR)/objects.mk
+ # sources in netfilter/ directory
+ NETFILTEROBJS = iptcrdr.o iptpinhole.o nfct_get.o
+ 
+-ALLOBJS = $(BASEOBJS) $(LNXOBJS) $(NETFILTEROBJS)
++WSCOBJS = wsc/wsc_main.o wsc/wsc_common.o wsc/wsc_ioctl.o wsc/wsc_netlink.o wsc/wsc_upnp_device.o wsc/wsc_msg.o
++
++ALLOBJS = $(BASEOBJS) $(LNXOBJS) $(NETFILTEROBJS) $(WSCOBJS)
+ 
+ DEP = $(ALLOBJS:.o=.d)
+ 
+@@ -161,7 +163,7 @@ endif
+ 
+ include $(SRCDIR)/check.mk
+ 
+-miniupnpd:	$(BASEOBJS) $(LNXOBJS) $(NETFILTEROBJS)
++miniupnpd:	$(BASEOBJS) $(LNXOBJS) $(NETFILTEROBJS) $(WSCOBJS)
+ 
+ testupnpdescgen:	$(TESTUPNPDESCGENOBJS)
+ 
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/configure
+===================================================================
+--- a/configure
++++ b/configure
+@@ -710,7 +710,7 @@ echo "" >> ${CONFIGFILE}
+ 
+ echo "/* Enable IP v6 support */" >> ${CONFIGFILE}
+ if [ -n "$IPV6" ]; then
+-	echo "#define ENABLE_IPV6" >> ${CONFIGFILE}
++	echo "/* #define ENABLE_IPV6 */" >> ${CONFIGFILE}
+ else
+ 	echo "/*#define ENABLE_IPV6*/" >> ${CONFIGFILE}
+ fi
+@@ -759,6 +759,15 @@ echo " * It can be disabled to save a fe
+ echo "#define ENABLE_EVENTS" >> ${CONFIGFILE}
+ echo "" >> ${CONFIGFILE}
+ 
++echo "/* Comment the following line to disable Wi-Fi Protected Setup support. */" >> ${CONFIGFILE}
++echo "#define ENABLE_WSC_SERVICE" >> ${CONFIGFILE}
++echo "" >> ${CONFIGFILE}
++
++echo "/* Comment the following line to enable debug feature for Wi-Fi Protected" >> ${CONFIGFILE}
++echo " * Setup support */" >> ${CONFIGFILE}
++echo "#define RT_DEBUG" >> ${CONFIGFILE}
++echo "" >> ${CONFIGFILE}
++
+ echo "/* include interface name in pf and ipf rules */" >> ${CONFIGFILE}
+ echo "#define USE_IFNAME_IN_RULES" >> ${CONFIGFILE}
+ echo "" >> ${CONFIGFILE}

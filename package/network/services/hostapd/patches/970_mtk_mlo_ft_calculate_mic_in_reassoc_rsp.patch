@@ -1,0 +1,165 @@
+Index: hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/common/wpa_common.c
++++ hostapd-2022-07-29-b704dc72/src/common/wpa_common.c
+@@ -1026,10 +1026,10 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 				wpa_printf(MSG_INFO, "FT: MLO valid links=%x, need_ml_rsn=%d",
+ 					valid_links, need_ml_rsn);
+ 			} else if (ml_group) {
++				valid_links = 0;
+ 				for (i = 0; i < ml_group->ml_link_num; i++) {
+ 					struct wpa_authenticator *auth;
+ 
+-					//ml_group = hapd->ml_group;
+ 					link = &ml_group->links[i];
+ 					auth = ((struct hostapd_data *)link->ctx)->wpa_auth;
+ 					if (!auth) {
+@@ -1038,42 +1038,47 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 							link->link_id, MAC2STR(link->addr));
+ 						return -1;
+ 					}
+-					link_rsne[i] = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSN);
+-					link_rsne_len[i] = link_rsne[i] ? link_rsne[i][1] + 2 : 0;
+-					link_rsnxe[i] = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSNX);
+-					link_rsnxe_len[i] = link_rsnxe[i] ? link_rsnxe[i][1] + 2 : 0;
+-					link_addr[i] = link->addr;
+-
+-					wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp rsne",
+-							link_rsne[i], link_rsne_len[i]);
+-					wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp rsxe",
+-							link_rsnxe[i], link_rsnxe_len[i]);
+-					wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp link_addr",
+-							link_addr[i], ETH_ALEN);
++
++					valid_links |= BIT(link->link_id);
++					link_rsne[link->link_id] = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSN);
++					link_rsne_len[link->link_id] = link_rsne[link->link_id] ? link_rsne[link->link_id][1] + 2 : 0;
++					link_rsnxe[link->link_id] = get_ie(auth->wpa_ie, auth->wpa_ie_len, WLAN_EID_RSNX);
++					link_rsnxe_len[link->link_id] = link_rsnxe[link->link_id] ? link_rsnxe[link->link_id][1] + 2 : 0;
++					link_addr[link->link_id] = link->addr;
++
++					if (!os_memcmp(link->addr, main_link_addr, ETH_ALEN)) {
++						ml_info.link_id = link->link_id;
++						wpa_printf(MSG_DEBUG, "FT: tx_reassoc_rsp ml_info.link_id = %d",
++							ml_info.link_id );
++					}
+ 				}
+ 
+ 				if (ml_group->ml_link_num > 1)
+ 					need_ml_rsn = 1;
+ 
++				if (need_ml_rsn) {
++					for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
++						if (valid_links & BIT(i)) {
++							wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp rsne",
++									link_rsne[i], link_rsne_len[i]);
++							wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp rsxe",
++									link_rsnxe[i], link_rsnxe_len[i]);
++							wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp link_addr",
++									link_addr[i], ETH_ALEN);
++						}
++					}
++				}
++
+ 				wpa_printf(MSG_INFO, "FT: MLO valid links=%x, need_ml_rsn=%d for tx_reassoc_rsp",
+ 					valid_links, need_ml_rsn);
+-				wpa_printf(MSG_INFO, "FT: ml_group->ml_link_num = %ld. xxabc",
++				wpa_printf(MSG_INFO, "FT: ml_group->ml_link_num = %ld",
+ 					ml_group->ml_link_num);
+ 
+ 				if (need_ml_rsn) {
+-					if (each_link_rsne_equal(link_rsne, link_rsne_len, ml_group->ml_link_num)) {
+-						for (i = 0; i < ml_group->ml_link_num; i++) {
+-							link_rsne[i] = rsnie;
+-							link_rsne_len[i] = rsnie_len;
+-							wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp rsne append PMKID & PMKLIST",
+-								link_rsne[i], link_rsne_len[i]);
+-						}
+-					} else {
+-						link_rsne[ml_info.link_id] = rsnie;
+-						link_rsne_len[ml_info.link_id] = rsnie_len;
+-						wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp mai link rsne append PMKID & PMKLIST",
+-								link_rsne[ml_info.link_id], link_rsne_len[ml_info.link_id]);
+-					}
++					link_rsne[ml_info.link_id] = rsnie;
++					link_rsne_len[ml_info.link_id] = rsnie_len;
++					wpa_hexdump(MSG_DEBUG, "FT: tx_reassoc_rsp mai link rsne append PMKID & PMKLIST",
++						link_rsne[ml_info.link_id], link_rsne_len[ml_info.link_id]);
+ 				}
+ 			}
+ 		}
+@@ -1117,7 +1122,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 	}
+ 
+ #ifdef CONFIG_MTK_IEEE80211BE
+-	if (need_ml_rsn && !tx_reassoc_rsp) {
++	if (need_ml_rsn) {
+ 		for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
+ 			if (valid_links & BIT(i)) {
+ 				addr[num_elem] = link_rsne[i];
+@@ -1125,12 +1130,6 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 				num_elem++;
+ 			}
+ 		}
+-	} else if (need_ml_rsn && tx_reassoc_rsp && ml_group) {
+-		for (i = 0; i < ml_group->ml_link_num; i++) {
+-			addr[num_elem] = link_rsne[i];
+-			len[num_elem] = link_rsne_len[i];
+-			num_elem++;
+-		}
+ 	}
+ #endif
+ 
+@@ -1172,7 +1171,7 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 	}
+ 
+ #ifdef CONFIG_MTK_IEEE80211BE
+-	if (need_ml_rsn && !tx_reassoc_rsp) {
++	if (need_ml_rsn) {
+ 		for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
+ 			if (valid_links & BIT(i)) {
+ 				addr[num_elem] = link_rsnxe[i];
+@@ -1180,27 +1179,12 @@ int wpa_ft_mic(int key_mgmt, const u8 *k
+ 				num_elem++;
+ 			}
+ 		}
+-	} else if (need_ml_rsn && tx_reassoc_rsp && ml_group) {
+-		for (i = 0; i < ml_group->ml_link_num; i++) {
+-			addr[num_elem] = link_rsnxe[i];
+-			len[num_elem] = link_rsnxe_len[i];
+-			num_elem++;
+-		}
+ 	}
+ 
+ 	if (mlie) {
+-		if (!tx_reassoc_rsp) {
+-			for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
+-				if (valid_links & BIT(i)) {
+-					wpa_printf(MSG_INFO, "FT: link addr");
+-					addr[num_elem] = link_addr[i];
+-					len[num_elem] = ETH_ALEN;
+-					num_elem++;
+-				}
+-			}
+-		} else {
+-			for (i = 0; i < ml_group->ml_link_num; i++) {
+-				wpa_printf(MSG_INFO, "FT: link addr for tx_reassoc_rsp");
++		for (i = 0; i < MAX_NUM_MLO_LINKS; i++) {
++			if (valid_links & BIT(i)) {
++				wpa_printf(MSG_INFO, "FT: link addr");
+ 				addr[num_elem] = link_addr[i];
+ 				len[num_elem] = ETH_ALEN;
+ 				num_elem++;
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+@@ -3882,7 +3882,7 @@ SM_STATE(WPA_PTK, PTKINITDONE)
+ 		MACSTR, MAC2STR(sm->addr));
+ 
+ #ifdef CONFIG_IEEE80211R_AP
+-	wpa_ft_push_pmk_r1(sm->wpa_auth, sm->addr);
++	wpa_ft_push_pmk_r1(sm->wpa_auth, ml_auth_spa(sm, sm->addr));
+ #endif /* CONFIG_IEEE80211R_AP */
+ 
+ 	sm->ptkstart_without_success = 0;

@@ -1,0 +1,25 @@
+From afd1c1e65c020756e6b2470632208ff5ee5eeefe Mon Sep 17 00:00:00 2001
+From: Sam Shih <sam.shih@mediatek.com>
+Date: Tue, 30 May 2023 20:00:17 +0800
+Subject: [PATCH] [autobuild][999-2950-add-regmap-debugfs.patch]
+
+---
+ drivers/base/regmap/regmap-debugfs.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/base/regmap/regmap-debugfs.c b/drivers/base/regmap/regmap-debugfs.c
+index 4f2ff1b2b..e86da613d 100644
+--- a/drivers/base/regmap/regmap-debugfs.c
++++ b/drivers/base/regmap/regmap-debugfs.c
+@@ -291,7 +291,7 @@ static ssize_t regmap_map_read_file(struct file *file, char __user *user_buf,
+ 				   count, ppos);
+ }
+ 
+-#undef REGMAP_ALLOW_WRITE_DEBUGFS
++#define REGMAP_ALLOW_WRITE_DEBUGFS
+ #ifdef REGMAP_ALLOW_WRITE_DEBUGFS
+ /*
+  * This can be dangerous especially when we have clients such as
+-- 
+2.34.1
+

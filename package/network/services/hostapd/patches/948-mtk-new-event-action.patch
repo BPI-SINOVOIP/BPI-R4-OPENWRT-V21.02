@@ -1,0 +1,17 @@
+Index: hostapd-2022-07-29-b704dc72/wpa_supplicant/wpa_cli.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/wpa_supplicant/wpa_cli.c
++++ hostapd-2022-07-29-b704dc72/wpa_supplicant/wpa_cli.c
+@@ -4406,6 +4406,12 @@ static void wpa_cli_action_process(const
+ 		wpa_cli_exec(action_file, ifname, pos);
+ 	} else if (str_starts(pos, DPP_EVENT_NET_ACCESS_KEY)) {
+ 		wpa_cli_exec(action_file, ifname, pos);
++	} else if (str_starts(pos, WPA_EVENT_SCAN_STARTED)) {
++		wpa_cli_exec(action_file, ifname, pos);
++	} else if (str_starts(pos, WPA_EVENT_SCAN_RESULTS)) {
++		wpa_cli_exec(action_file, ifname, pos);
++	} else if (str_starts(pos, WPA_EVENT_SCAN_FAILED)) {
++		wpa_cli_exec(action_file, ifname, pos);
+ 	} else if (str_starts(pos, WPA_EVENT_TERMINATING)) {
+ 		printf("wpa_supplicant is terminating - stop monitoring\n");
+ 		if (!reconnect)

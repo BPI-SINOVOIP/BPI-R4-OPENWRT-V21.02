@@ -1,0 +1,13 @@
+Index: backports-5.15.74-1/net/wireless/nl80211.c
+===================================================================
+--- backports-5.15.74-1.orig/net/wireless/nl80211.c
++++ backports-5.15.74-1/net/wireless/nl80211.c
+@@ -16055,7 +16055,7 @@ static const struct genl_small_ops nl802
+ 		.dumpit = nl80211_vendor_cmd_dump,
+ 		.flags = GENL_UNS_ADMIN_PERM,
+ 		.internal_flags = NL80211_FLAG_NEED_WIPHY |
+-				  0 |
++				  NL80211_FLAG_NEED_RTNL |
+ 				  NL80211_FLAG_CLEAR_SKB,
+ 	},
+ 	{

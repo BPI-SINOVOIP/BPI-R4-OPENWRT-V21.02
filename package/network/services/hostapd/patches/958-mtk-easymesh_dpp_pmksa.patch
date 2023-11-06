@@ -1,0 +1,21 @@
+diff --git a/src/ap/wpa_auth_ie.c b/src/ap/wpa_auth_ie.c
+index 3dc67ab..389820f 100644
+--- a/src/ap/wpa_auth_ie.c
++++ b/src/ap/wpa_auth_ie.c
+@@ -963,6 +963,16 @@ wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
+ 			pmkid = sm->pmksa->pmkid;
+ 			break;
+ 		}
++#ifdef CONFIG_MTK_MAP
++		else if (sm->wpa_key_mgmt == WPA_KEY_MGMT_DPP) {
++			sm->pmksa = pmksa_cache_auth_get(wpa_auth->pmksa, sm->addr,
++							&data.pmkid[i * PMKID_LEN]);
++			if (sm->pmksa) {
++				pmkid = sm->pmksa->pmkid;
++				break;
++			}
++		}
++#endif
+ 	}
+ 	for (i = 0; sm->pmksa == NULL && wpa_auth->conf.okc &&
+ 		     i < data.num_pmkid; i++) {

@@ -1,0 +1,198 @@
+From ab77df3cc660c0aa0f46060499d8704dc389a2a6 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Mon, 24 Jul 2023 16:39:22 +0800
+Subject: [PATCH 63/98] wifi: mt76: mt7996: add wtbl_info support for kite
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/mtk_debug.h   | 22 +++++++++++++
+ mt7996/mtk_debugfs.c | 74 ++++++++++++++++++++++++++++++++++++++++++--
+ 2 files changed, 93 insertions(+), 3 deletions(-)
+
+diff --git a/mt7996/mtk_debug.h b/mt7996/mtk_debug.h
+index 9718c2c..1611345 100644
+--- a/mt7996/mtk_debug.h
++++ b/mt7996/mtk_debug.h
+@@ -1088,6 +1088,17 @@ enum cipher_suit {
+ #define WF_LWTBL_AAD_OM_MASK \
+ 	0x00008000 // 15-15
+ #define WF_LWTBL_AAD_OM_SHIFT                                       15
++/* kite DW2 field bit 13-14 */
++#define WF_LWTBL_DUAL_PTEC_EN_DW                                    2
++#define WF_LWTBL_DUAL_PTEC_EN_ADDR                                  8
++#define WF_LWTBL_DUAL_PTEC_EN_MASK \
++	0x00002000 // 13-13
++#define WF_LWTBL_DUAL_PTEC_EN_SHIFT                                 13
++#define WF_LWTBL_DUAL_CTS_CAP_DW                                    2
++#define WF_LWTBL_DUAL_CTS_CAP_ADDR                                  8
++#define WF_LWTBL_DUAL_CTS_CAP_MASK \
++	0x00004000 // 14-14
++#define WF_LWTBL_DUAL_CTS_CAP_SHIFT                                 14
+ #define WF_LWTBL_CIPHER_SUIT_PGTK_DW                                2
+ #define WF_LWTBL_CIPHER_SUIT_PGTK_ADDR                              8
+ #define WF_LWTBL_CIPHER_SUIT_PGTK_MASK \
+@@ -1305,6 +1316,8 @@ enum cipher_suit {
+ #define WF_LWTBL_AF_ADDR                                            20
+ #define WF_LWTBL_AF_MASK \
+ 	0x00000007 // 2- 0
++#define WF_LWTBL_AF_MASK_7992 \
++	0x0000000f // 3- 0
+ #define WF_LWTBL_AF_SHIFT                                           0
+ #define WF_LWTBL_AF_HE_DW                                           5
+ #define WF_LWTBL_AF_HE_ADDR                                         20
+@@ -1565,16 +1578,25 @@ enum cipher_suit {
+ #define WF_LWTBL_PRITX_SW_MODE_MASK \
+ 	0x00008000 // 15-15
+ #define WF_LWTBL_PRITX_SW_MODE_SHIFT                                15
++#define WF_LWTBL_PRITX_SW_MODE_MASK_7992 \
++	0x00004000 // 14-14
++#define WF_LWTBL_PRITX_SW_MODE_SHIFT_7992                           14
+ #define WF_LWTBL_PRITX_ERSU_DW                                      9
+ #define WF_LWTBL_PRITX_ERSU_ADDR                                    36
+ #define WF_LWTBL_PRITX_ERSU_MASK \
+ 	0x00010000 // 16-16
+ #define WF_LWTBL_PRITX_ERSU_SHIFT                                   16
++#define WF_LWTBL_PRITX_ERSU_MASK_7992 \
++	0x00008000 // 15-15
++#define WF_LWTBL_PRITX_ERSU_SHIFT_7992                              15
+ #define WF_LWTBL_PRITX_PLR_DW                                       9
+ #define WF_LWTBL_PRITX_PLR_ADDR                                     36
+ #define WF_LWTBL_PRITX_PLR_MASK \
+ 	0x00020000 // 17-17
+ #define WF_LWTBL_PRITX_PLR_SHIFT                                    17
++#define WF_LWTBL_PRITX_PLR_MASK_7992 \
++	0x00030000 // 17-16
++#define WF_LWTBL_PRITX_PLR_SHIFT_7992                               16
+ #define WF_LWTBL_PRITX_DCM_DW                                       9
+ #define WF_LWTBL_PRITX_DCM_ADDR                                     36
+ #define WF_LWTBL_PRITX_DCM_MASK \
+diff --git a/mt7996/mtk_debugfs.c b/mt7996/mtk_debugfs.c
+index f56ad88..ce48664 100644
+--- a/mt7996/mtk_debugfs.c
++++ b/mt7996/mtk_debugfs.c
+@@ -1011,7 +1011,8 @@ static void parse_fmac_lwtbl_dw0_1(struct seq_file *s, u8 *lwtbl)
+ 	}
+ }
+ 
+-static const struct berse_wtbl_parse WTBL_LMAC_DW2[] = {
++static const struct berse_wtbl_parse *WTBL_LMAC_DW2;
++static const struct berse_wtbl_parse WTBL_LMAC_DW2_7996[] = {
+ 	{"AID",                 WF_LWTBL_AID_MASK,              WF_LWTBL_AID_SHIFT,	false},
+ 	{"GID_SU",              WF_LWTBL_GID_SU_MASK,           NO_SHIFT_DEFINE,	false},
+ 	{"SPP_EN",              WF_LWTBL_SPP_EN_MASK,           NO_SHIFT_DEFINE,	false},
+@@ -1032,6 +1033,26 @@ static const struct berse_wtbl_parse WTBL_LMAC_DW2[] = {
+ 	{NULL,}
+ };
+ 
++static const struct berse_wtbl_parse WTBL_LMAC_DW2_7992[] = {
++	{"AID",                 WF_LWTBL_AID_MASK,              WF_LWTBL_AID_SHIFT,	false},
++	{"GID_SU",              WF_LWTBL_GID_SU_MASK,           NO_SHIFT_DEFINE,	false},
++	{"DUAL_PTEC_EN",        WF_LWTBL_DUAL_PTEC_EN_MASK,     NO_SHIFT_DEFINE,	false},
++	{"DUAL_CTS_CAP",        WF_LWTBL_DUAL_CTS_CAP_MASK,     NO_SHIFT_DEFINE,	false},
++	{"CIPHER_PGTK",WF_LWTBL_CIPHER_SUIT_PGTK_MASK, WF_LWTBL_CIPHER_SUIT_PGTK_SHIFT,	true},
++	{"FROM_DS",             WF_LWTBL_FD_MASK,               NO_SHIFT_DEFINE,	false},
++	{"TO_DS",               WF_LWTBL_TD_MASK,               NO_SHIFT_DEFINE,	false},
++	{"SW",                  WF_LWTBL_SW_MASK,               NO_SHIFT_DEFINE,	false},
++	{"UL",                  WF_LWTBL_UL_MASK,               NO_SHIFT_DEFINE,	false},
++	{"TX_POWER_SAVE",       WF_LWTBL_TX_PS_MASK,            NO_SHIFT_DEFINE,	true},
++	{"QOS",                 WF_LWTBL_QOS_MASK,              NO_SHIFT_DEFINE,	false},
++	{"HT",                  WF_LWTBL_HT_MASK,               NO_SHIFT_DEFINE,	false},
++	{"VHT",                 WF_LWTBL_VHT_MASK,              NO_SHIFT_DEFINE,	false},
++	{"HE",                  WF_LWTBL_HE_MASK,               NO_SHIFT_DEFINE,	false},
++	{"EHT",                 WF_LWTBL_EHT_MASK,              NO_SHIFT_DEFINE,	false},
++	{"MESH",                WF_LWTBL_MESH_MASK,             NO_SHIFT_DEFINE,	true},
++	{NULL,}
++};
++
+ static void parse_fmac_lwtbl_dw2(struct seq_file *s, u8 *lwtbl)
+ {
+ 	u32 *addr = 0;
+@@ -1141,7 +1162,8 @@ static void parse_fmac_lwtbl_dw4(struct seq_file *s, u8 *lwtbl)
+ 	}
+ }
+ 
+-static const struct berse_wtbl_parse WTBL_LMAC_DW5[] = {
++static const struct berse_wtbl_parse *WTBL_LMAC_DW5;
++static const struct berse_wtbl_parse WTBL_LMAC_DW5_7996[] = {
+ 	{"AF",                  WF_LWTBL_AF_MASK,           WF_LWTBL_AF_SHIFT,	false},
+ 	{"AF_HE",               WF_LWTBL_AF_HE_MASK,        WF_LWTBL_AF_HE_SHIFT,false},
+ 	{"RTS",                 WF_LWTBL_RTS_MASK,          NO_SHIFT_DEFINE,	false},
+@@ -1163,6 +1185,27 @@ static const struct berse_wtbl_parse WTBL_LMAC_DW5[] = {
+ 	{NULL,}
+ };
+ 
++static const struct berse_wtbl_parse WTBL_LMAC_DW5_7992[] = {
++	{"AF",                  WF_LWTBL_AF_MASK_7992,      WF_LWTBL_AF_SHIFT,	false},
++	{"RTS",                 WF_LWTBL_RTS_MASK,          NO_SHIFT_DEFINE,	false},
++	{"SMPS",                WF_LWTBL_SMPS_MASK,         NO_SHIFT_DEFINE,	false},
++	{"DYN_BW",              WF_LWTBL_DYN_BW_MASK,       NO_SHIFT_DEFINE,	true},
++	{"MMSS",                WF_LWTBL_MMSS_MASK,         WF_LWTBL_MMSS_SHIFT,false},
++	{"USR",                 WF_LWTBL_USR_MASK,          NO_SHIFT_DEFINE,	false},
++	{"SR_RATE",             WF_LWTBL_SR_R_MASK,         WF_LWTBL_SR_R_SHIFT,false},
++	{"SR_ABORT",            WF_LWTBL_SR_ABORT_MASK,     NO_SHIFT_DEFINE,	true},
++	{"TX_POWER_OFFSET",     WF_LWTBL_TX_POWER_OFFSET_MASK,  WF_LWTBL_TX_POWER_OFFSET_SHIFT,	false},
++	{"LTF_EHT",		WF_LWTBL_LTF_EHT_MASK,      WF_LWTBL_LTF_EHT_SHIFT, false},
++	{"GI_EHT",		WF_LWTBL_GI_EHT_MASK,       WF_LWTBL_GI_EHT_SHIFT, false},
++	{"DOPPL",               WF_LWTBL_DOPPL_MASK,        NO_SHIFT_DEFINE,	false},
++	{"TXOP_PS_CAP",         WF_LWTBL_TXOP_PS_CAP_MASK,  NO_SHIFT_DEFINE,	false},
++	{"DONOT_UPDATE_I_PSM",  WF_LWTBL_DU_I_PSM_MASK,     NO_SHIFT_DEFINE,	true},
++	{"I_PSM",               WF_LWTBL_I_PSM_MASK,        NO_SHIFT_DEFINE,	false},
++	{"PSM",                 WF_LWTBL_PSM_MASK,          NO_SHIFT_DEFINE,	false},
++	{"SKIP_TX",             WF_LWTBL_SKIP_TX_MASK,      NO_SHIFT_DEFINE,	true},
++	{NULL,}
++};
++
+ static void parse_fmac_lwtbl_dw5(struct seq_file *s, u8 *lwtbl)
+ {
+ 	u32 *addr = 0;
+@@ -1281,7 +1324,8 @@ static void parse_fmac_lwtbl_dw8(struct seq_file *s, u8 *lwtbl)
+ 	}
+ }
+ 
+-static const struct berse_wtbl_parse WTBL_LMAC_DW9[] = {
++static const struct berse_wtbl_parse *WTBL_LMAC_DW9;
++static const struct berse_wtbl_parse WTBL_LMAC_DW9_7996[] = {
+ 	{"RX_AVG_MPDU_SIZE",    WF_LWTBL_RX_AVG_MPDU_SIZE_MASK,    WF_LWTBL_RX_AVG_MPDU_SIZE_SHIFT,	false},
+ 	{"PRITX_SW_MODE",       WF_LWTBL_PRITX_SW_MODE_MASK,       NO_SHIFT_DEFINE,	false},
+ 	{"PRITX_ERSU",	    WF_LWTBL_PRITX_ERSU_MASK,	       NO_SHIFT_DEFINE,	false},
+@@ -1295,6 +1339,20 @@ static const struct berse_wtbl_parse WTBL_LMAC_DW9[] = {
+ 	{NULL,}
+ };
+ 
++static const struct berse_wtbl_parse WTBL_LMAC_DW9_7992[] = {
++	{"RX_AVG_MPDU_SIZE",    WF_LWTBL_RX_AVG_MPDU_SIZE_MASK,    WF_LWTBL_RX_AVG_MPDU_SIZE_SHIFT,	false},
++	{"PRITX_SW_MODE",       WF_LWTBL_PRITX_SW_MODE_MASK_7992,       NO_SHIFT_DEFINE,	false},
++	{"PRITX_ERSU",	    WF_LWTBL_PRITX_ERSU_MASK_7992,	       NO_SHIFT_DEFINE,	false},
++	{"PRITX_PLR",           WF_LWTBL_PRITX_PLR_MASK_7992,           NO_SHIFT_DEFINE,	true},
++	{"PRITX_DCM",           WF_LWTBL_PRITX_DCM_MASK,           NO_SHIFT_DEFINE,	false},
++	{"PRITX_ER106T",        WF_LWTBL_PRITX_ER106T_MASK,        NO_SHIFT_DEFINE,	true},
++	/* {"FCAP(0:20 1:~40)",    WTBL_FCAP_20_TO_160_MHZ,	WTBL_FCAP_20_TO_160_MHZ_OFFSET}, */
++	{"MPDU_FAIL_CNT",       WF_LWTBL_MPDU_FAIL_CNT_MASK,       WF_LWTBL_MPDU_FAIL_CNT_SHIFT,	false},
++	{"MPDU_OK_CNT",         WF_LWTBL_MPDU_OK_CNT_MASK,         WF_LWTBL_MPDU_OK_CNT_SHIFT,	false},
++	{"RATE_IDX",            WF_LWTBL_RATE_IDX_MASK,            WF_LWTBL_RATE_IDX_SHIFT,	true},
++	{NULL,}
++};
++
+ char *fcap_name[] = {"20MHz", "20/40MHz", "20/40/80MHz", "20/40/80/160/80+80MHz", "20/40/80/160/80+80/320MHz"};
+ 
+ static void parse_fmac_lwtbl_dw9(struct seq_file *s, u8 *lwtbl)
+@@ -2670,6 +2728,16 @@ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir)
+ {
+ 	struct mt7996_dev *dev = phy->dev;
+ 
++	if (is_mt7996(&dev->mt76)) {
++		WTBL_LMAC_DW2 = WTBL_LMAC_DW2_7996;
++		WTBL_LMAC_DW5 = WTBL_LMAC_DW5_7996;
++		WTBL_LMAC_DW9 = WTBL_LMAC_DW9_7996;
++	} else {
++		WTBL_LMAC_DW2 = WTBL_LMAC_DW2_7992;
++		WTBL_LMAC_DW5 = WTBL_LMAC_DW5_7992;
++		WTBL_LMAC_DW9 = WTBL_LMAC_DW9_7992;
++	}
++
+ 	mt7996_mcu_fw_log_2_host(dev, MCU_FW_LOG_WM, 0);
+ 
+ 	/* agg */
+-- 
+2.18.0
+

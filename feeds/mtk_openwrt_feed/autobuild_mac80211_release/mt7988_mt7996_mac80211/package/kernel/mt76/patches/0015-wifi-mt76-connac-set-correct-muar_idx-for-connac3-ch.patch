@@ -1,0 +1,49 @@
+From 09a1b2d9ad49d3bea1bdd8d4f7326af6a65a3dbb Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Thu, 16 Feb 2023 13:53:14 +0800
+Subject: [PATCH 15/98] wifi: mt76: connac: set correct muar_idx for connac3
+ chipset
+
+Set the muar_idx to 0xe for the hw bcast/mcast station entry of connac3
+chipset.
+
+Signed-off-by: Shayne Chen <shayne.chen@mediatek.com>
+Change-Id: I7054c3b3c64ec447cc280ea810f4958afdfa9e02
+---
+ mt76_connac.h     | 5 +++++
+ mt76_connac_mcu.c | 3 +++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/mt76_connac.h b/mt76_connac.h
+index e5ebde1..c6726ab 100644
+--- a/mt76_connac.h
++++ b/mt76_connac.h
+@@ -245,6 +245,11 @@ static inline bool is_connac_v1(struct mt76_dev *dev)
+ 	return is_mt7615(dev) || is_mt7663(dev) || is_mt7622(dev);
+ }
+ 
++static inline bool is_connac_v3(struct mt76_dev *dev)
++{
++	return is_mt7996(dev);
++}
++
+ static inline bool is_mt76_fw_txp(struct mt76_dev *dev)
+ {
+ 	switch (mt76_chip(dev)) {
+diff --git a/mt76_connac_mcu.c b/mt76_connac_mcu.c
+index bcd6c20..68de525 100644
+--- a/mt76_connac_mcu.c
++++ b/mt76_connac_mcu.c
+@@ -282,6 +282,9 @@ __mt76_connac_mcu_alloc_sta_req(struct mt76_dev *dev, struct mt76_vif *mvif,
+ 	};
+ 	struct sk_buff *skb;
+ 
++	if (is_connac_v3(dev) && !wcid->sta)
++		hdr.muar_idx = 0xe;
++
+ 	mt76_connac_mcu_get_wlan_idx(dev, wcid, &hdr.wlan_idx_lo,
+ 				     &hdr.wlan_idx_hi);
+ 	skb = mt76_mcu_msg_alloc(dev, NULL, len);
+-- 
+2.18.0
+

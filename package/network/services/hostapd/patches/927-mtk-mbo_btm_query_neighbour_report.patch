@@ -1,0 +1,100 @@
+diff --git a/hostapd/Makefile b/hostapd/Makefile
+index 068f134..90a9b3c 100644
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -370,7 +370,7 @@ OBJS += ../src/ap/ieee802_11_he.o
+ endif
+ 
+ ifdef CONFIG_MBO
+-CFLAGS += -DCONFIG_MBO
++CFLAGS += -DCONFIG_MBO -DHOSTAPD_MBO_IN_DRIVER_SUPPORT
+ OBJS += ../src/ap/mbo_ap.o
+ endif
+ 
+diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
+index c496e4f..79890c9 100644
+--- a/src/ap/ctrl_iface_ap.c
++++ b/src/ap/ctrl_iface_ap.c
+@@ -1202,7 +1202,9 @@ int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
+ 			wpa_printf(MSG_DEBUG, "Invalid bss_term data");
+ 			return -1;
+ 		}
+-		end++;
++		end--;
++		WPA_PUT_LE16(&bss_term_dur[2], atoi(end));
++		end += 2;
+ 		WPA_PUT_LE16(&bss_term_dur[10], atoi(end));
+ 	}
+ 
+diff --git a/src/ap/wnm_ap.c b/src/ap/wnm_ap.c
+index 2fa641b..06a2d46 100644
+--- a/src/ap/wnm_ap.c
++++ b/src/ap/wnm_ap.c
+@@ -365,6 +365,59 @@ static int ieee802_11_send_bss_trans_mgmt_request(struct hostapd_data *hapd,
+ 						  const u8 *addr,
+ 						  u8 dialog_token)
+ {
++#ifdef HOSTAPD_MBO_IN_DRIVER_SUPPORT
++	struct hostapd_neighbor_entry *nr;
++	struct wpabuf *buf;
++	int res;
++	u8 req_mode = 0;
++
++	buf = wpabuf_alloc(3 + IEEE80211_MAX_MMPDU_SIZE);
++	if (!buf)
++		return -1;
++
++	wpabuf_put_u8(buf, WLAN_ACTION_WNM);
++	wpabuf_put_u8(buf, WNM_BSS_TRANS_MGMT_REQ);
++	wpabuf_put_u8(buf, dialog_token);
++	req_mode |= WNM_BSS_TM_REQ_PREF_CAND_LIST_INCLUDED;
++	wpabuf_put_u8(buf, req_mode);
++	wpabuf_put_le16(buf, host_to_le16(0));
++	wpabuf_put_u8(buf, 1);
++
++	dl_list_for_each(nr, &hapd->nr_db, struct hostapd_neighbor_entry,
++			list) {
++		size_t nr_len = 0;
++
++		if (!nr || !nr->nr || wpabuf_len(nr->nr) < 12)
++			continue;
++
++		nr_len = wpabuf_len(nr->nr);
++		if (nr_len > 0xff) {
++			wpa_printf(MSG_DEBUG,
++					"NR entry for " MACSTR " exceeds 0xFF bytes",
++					MAC2STR(nr->bssid));
++			continue;
++		}
++		if (nr_len > wpabuf_tailroom(buf))
++			break;
++
++		if (nr_len == 16) {
++			wpabuf_put_u8(buf, WLAN_EID_NEIGHBOR_REPORT);
++			wpabuf_put_u8(buf, nr_len);
++			wpabuf_put_buf(buf, nr->nr);
++		}
++	}
++
++	hapd->openwrt_stats.wnm.bss_transition_request_tx++;
++	wpa_printf(MSG_DEBUG, "WNM: Send BSS Transition Management Request to "
++			MACSTR " dialog_token=%u req_mode=0x%x disassoc_timer=%u ",
++			MAC2STR(addr), dialog_token,
++			req_mode,
++			le_to_host16(0));
++
++	res = hostapd_drv_send_action(hapd, hapd->iface->freq, 0, addr,
++			wpabuf_head(buf), wpabuf_len(buf));
++	wpabuf_free(buf);
++#else
+ 	struct ieee80211_mgmt *mgmt;
+ 	size_t len;
+ 	u8 *pos;
+@@ -399,6 +452,7 @@ static int ieee802_11_send_bss_trans_mgmt_request(struct hostapd_data *hapd,
+ 	res = hostapd_drv_send_action(hapd, hapd->iface->freq, 0,
+ 				      mgmt->da, &mgmt->u.action.category, len);
+ 	os_free(mgmt);
++#endif
+ 	return res;
+ }
+ 

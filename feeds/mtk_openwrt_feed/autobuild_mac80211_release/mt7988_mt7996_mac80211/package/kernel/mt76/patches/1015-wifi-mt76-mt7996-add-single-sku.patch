@@ -1,0 +1,355 @@
+From d07d8b3b246b974d7ae4ad9bdfc676438cb45fec Mon Sep 17 00:00:00 2001
+From: "Allen.Ye" <allen.ye@mediatek.com>
+Date: Mon, 10 Jul 2023 19:56:16 +0800
+Subject: [PATCH 48/98] wifi: mt76: mt7996: add single sku
+
+Add single sku and default enable sku.
+
+Signed-off-by: Allen.Ye <allen.ye@mediatek.com>
+---
+ eeprom.c          | 50 +++++++++++++++++++++++---
+ mt76.h            |  9 +++++
+ mt76_connac_mcu.c |  2 +-
+ mt7996/init.c     |  2 ++
+ mt7996/main.c     | 16 +++++++++
+ mt7996/mcu.c      | 92 +++++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/mcu.h      | 12 +++++++
+ mt7996/mt7996.h   |  2 ++
+ 8 files changed, 179 insertions(+), 6 deletions(-)
+
+diff --git a/eeprom.c b/eeprom.c
+index 89bb913..bd662dd 100644
+--- a/eeprom.c
++++ b/eeprom.c
+@@ -356,6 +356,7 @@ mt76_apply_multi_array_limit(s8 *pwr, size_t pwr_len, s8 pwr_num,
+ s8 mt76_get_rate_power_limits(struct mt76_phy *phy,
+ 			      struct ieee80211_channel *chan,
+ 			      struct mt76_power_limits *dest,
++			      struct mt76_power_path_limits *dest_path,
+ 			      s8 target_power)
+ {
+ 	struct mt76_dev *dev = phy->dev;
+@@ -363,16 +364,20 @@ s8 mt76_get_rate_power_limits(struct mt76_phy *phy,
+ 	const __be32 *val;
+ 	char name[16];
+ 	u32 mcs_rates = dev->drv->mcs_rates;
+-	u32 ru_rates = ARRAY_SIZE(dest->ru[0]);
+ 	char band;
+ 	size_t len;
+-	s8 max_power = 0;
++	s8 max_power = -127;
++	s8 max_power_backoff = -127;
+ 	s8 txs_delta;
++	int n_chains = hweight8(phy->antenna_mask);
++	s8 target_power_combine = target_power + mt76_tx_power_nss_delta(n_chains);
+ 
+ 	if (!mcs_rates)
+-		mcs_rates = 10;
++		mcs_rates = 12;
+ 
+ 	memset(dest, target_power, sizeof(*dest));
++	if (dest_path != NULL)
++		memset(dest_path, 0, sizeof(*dest_path));
+ 
+ 	if (!IS_ENABLED(CONFIG_OF))
+ 		return target_power;
+@@ -420,12 +425,47 @@ s8 mt76_get_rate_power_limits(struct mt76_phy *phy,
+ 				     ARRAY_SIZE(dest->mcs), val, len,
+ 				     target_power, txs_delta, &max_power);
+ 
+-	val = mt76_get_of_array(np, "rates-ru", &len, ru_rates + 1);
++	val = mt76_get_of_array(np, "rates-ru", &len, ARRAY_SIZE(dest->ru[0]) + 1);
+ 	mt76_apply_multi_array_limit(dest->ru[0], ARRAY_SIZE(dest->ru[0]),
+ 				     ARRAY_SIZE(dest->ru), val, len,
+ 				     target_power, txs_delta, &max_power);
+ 
+-	return max_power;
++	val = mt76_get_of_array(np, "rates-eht", &len, ARRAY_SIZE(dest->eht[0]) + 1);
++	mt76_apply_multi_array_limit(dest->eht[0], ARRAY_SIZE(dest->eht[0]),
++				     ARRAY_SIZE(dest->eht), val, len,
++				     target_power, txs_delta, &max_power);
++
++	if (dest_path == NULL)
++		return max_power;
++
++	max_power_backoff = max_power;
++
++	val = mt76_get_of_array(np, "paths-cck", &len, ARRAY_SIZE(dest_path->cck));
++	mt76_apply_array_limit(dest_path->cck, ARRAY_SIZE(dest_path->cck), val,
++			       target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ofdm", &len, ARRAY_SIZE(dest_path->ofdm));
++	mt76_apply_array_limit(dest_path->ofdm, ARRAY_SIZE(dest_path->ofdm), val,
++			       target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ofdm-bf", &len, ARRAY_SIZE(dest_path->ofdm_bf));
++	mt76_apply_array_limit(dest_path->ofdm_bf, ARRAY_SIZE(dest_path->ofdm_bf), val,
++			       target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ru", &len, ARRAY_SIZE(dest_path->ru[0]) + 1);
++	mt76_apply_multi_array_limit(dest_path->ru[0], ARRAY_SIZE(dest_path->ru[0]),
++				     ARRAY_SIZE(dest_path->ru), val, len,
++				     target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ru-bf", &len, ARRAY_SIZE(dest_path->ru_bf[0]) + 1);
++	mt76_apply_multi_array_limit(dest_path->ru_bf[0], ARRAY_SIZE(dest_path->ru_bf[0]),
++				     ARRAY_SIZE(dest_path->ru_bf), val, len,
++				     target_power_combine, txs_delta, &max_power_backoff);
++
++	if (max_power_backoff == target_power_combine)
++		return max_power;
++
++	return max_power_backoff;
+ }
+ EXPORT_SYMBOL_GPL(mt76_get_rate_power_limits);
+ 
+diff --git a/mt76.h b/mt76.h
+index 0096c7f..d59a1f5 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -1060,6 +1060,14 @@ struct mt76_power_limits {
+ 	s8 eht[16][16];
+ };
+ 
++struct mt76_power_path_limits {
++	s8 cck[5];
++	s8 ofdm[5];
++	s8 ofdm_bf[4];
++	s8 ru[16][15];
++	s8 ru_bf[16][15];
++};
++
+ struct mt76_ethtool_worker_info {
+ 	u64 *data;
+ 	int idx;
+@@ -1655,6 +1663,7 @@ void mt76_set_irq_mask(struct mt76_dev *dev, u32 addr, u32 clear, u32 set);
+ s8 mt76_get_rate_power_limits(struct mt76_phy *phy,
+ 			      struct ieee80211_channel *chan,
+ 			      struct mt76_power_limits *dest,
++			      struct mt76_power_path_limits *dest_path,
+ 			      s8 target_power);
+ 
+ static inline bool mt76_queue_is_wed_tx_free(struct mt76_queue *q)
+diff --git a/mt76_connac_mcu.c b/mt76_connac_mcu.c
+index 236cfea..214a526 100644
+--- a/mt76_connac_mcu.c
++++ b/mt76_connac_mcu.c
+@@ -2269,7 +2269,7 @@ mt76_connac_mcu_rate_txpower_band(struct mt76_phy *phy,
+ 			sar_power = mt76_get_sar_power(phy, &chan, reg_power);
+ 
+ 			mt76_get_rate_power_limits(phy, &chan, limits,
+-						   sar_power);
++						   NULL, sar_power);
+ 
+ 			tx_power_tlv.last_msg = ch_list[idx] == last_ch;
+ 			sku_tlbv.channel = ch_list[idx];
+diff --git a/mt7996/init.c b/mt7996/init.c
+index bf3479e..ad93927 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -295,6 +295,7 @@ void mt7996_init_txpower(struct mt7996_dev *dev,
+ 	int nss_delta = mt76_tx_power_nss_delta(nss);
+ 	int pwr_delta = mt7996_eeprom_get_power_delta(dev, sband->band);
+ 	struct mt76_power_limits limits;
++	struct mt76_power_path_limits limits_path;
+ 
+ 	for (i = 0; i < sband->n_channels; i++) {
+ 		struct ieee80211_channel *chan = &sband->channels[i];
+@@ -303,6 +304,7 @@ void mt7996_init_txpower(struct mt7996_dev *dev,
+ 		target_power += pwr_delta;
+ 		target_power = mt76_get_rate_power_limits(&dev->mphy, chan,
+ 							  &limits,
++							  &limits_path,
+ 							  target_power);
+ 		target_power += nss_delta;
+ 		target_power = DIV_ROUND_UP(target_power, 2);
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 0ea006c..9e3e4ed 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -77,6 +77,15 @@ int mt7996_run(struct ieee80211_hw *hw)
+ 	if (ret)
+ 		goto out;
+ 
++#ifdef CONFIG_MTK_DEBUG
++	ret = mt7996_mcu_set_tx_power_ctrl(phy, UNI_TXPOWER_SKU_POWER_LIMIT_CTRL,
++					   !dev->dbg.sku_disable);
++#else
++	ret = mt7996_mcu_set_tx_power_ctrl(phy, UNI_TXPOWER_SKU_POWER_LIMIT_CTRL, true);
++#endif
++	if (ret)
++		goto out;
++
+ 	set_bit(MT76_STATE_RUNNING, &phy->mt76->state);
+ 
+ 	ieee80211_queue_delayed_work(hw, &phy->mt76->mac_work,
+@@ -429,6 +438,12 @@ static int mt7996_config(struct ieee80211_hw *hw, u32 changed)
+ 		ieee80211_wake_queues(hw);
+ 	}
+ 
++	if (changed & IEEE80211_CONF_CHANGE_POWER) {
++		ret = mt7996_mcu_set_txpower_sku(phy);
++		if (ret)
++			return ret;
++	}
++
+ 	mutex_lock(&dev->mt76.mutex);
+ 
+ 	if (changed & IEEE80211_CONF_CHANGE_MONITOR) {
+@@ -1005,6 +1020,7 @@ mt7996_set_antenna(struct ieee80211_hw *hw, u32 tx_ant, u32 rx_ant)
+ 	mt76_set_stream_caps(phy->mt76, true);
+ 	mt7996_set_stream_vht_txbf_caps(phy);
+ 	mt7996_set_stream_he_eht_caps(phy);
++	mt7996_mcu_set_txpower_sku(phy);
+ 
+ 	mutex_unlock(&dev->mt76.mutex);
+ 
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 1a1c732..c87cb1a 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -4708,6 +4708,98 @@ int mt7996_mcu_set_scs(struct mt7996_phy *phy, u8 enable)
+ 				 &req, sizeof(req), false);
+ }
+ 
++int mt7996_mcu_set_txpower_sku(struct mt7996_phy *phy)
++{
++#define TX_POWER_LIMIT_TABLE_RATE	0
++#define TX_POWER_LIMIT_TABLE_PATH	1
++	struct mt7996_dev *dev = phy->dev;
++	struct mt76_phy *mphy = phy->mt76;
++	struct ieee80211_hw *hw = mphy->hw;
++	struct tx_power_limit_table_ctrl {
++		u8 __rsv1[4];
++
++		__le16 tag;
++		__le16 len;
++		u8 power_ctrl_id;
++		u8 power_limit_type;
++		u8 band_idx;
++	} __packed req = {
++		.tag = cpu_to_le16(UNI_TXPOWER_POWER_LIMIT_TABLE_CTRL),
++		.len = cpu_to_le16(sizeof(req) + MT7996_SKU_PATH_NUM - 4),
++		.power_ctrl_id = UNI_TXPOWER_POWER_LIMIT_TABLE_CTRL,
++		.power_limit_type = TX_POWER_LIMIT_TABLE_RATE,
++		.band_idx = phy->mt76->band_idx,
++	};
++
++	int i, ret, tx_power;
++	const u8 *len = mt7996_sku_group_len;
++	struct mt76_power_limits la = {};
++	struct mt76_power_path_limits la_path = {};
++	struct sk_buff *skb;
++
++	tx_power = mt7996_get_power_bound(phy, hw->conf.power_level);
++	tx_power = mt76_get_rate_power_limits(mphy, mphy->chandef.chan,
++					      &la, &la_path, tx_power);
++	mphy->txpower_cur = tx_power;
++
++	skb = mt76_mcu_msg_alloc(&dev->mt76, NULL,
++				 sizeof(req) + MT7996_SKU_PATH_NUM);
++	if (!skb)
++		return -ENOMEM;
++
++	skb_put_data(skb, &req, sizeof(req));
++	skb_put_data(skb, &la.cck, len[SKU_CCK] + len[SKU_OFDM]);
++
++	skb_put_data(skb, &la.mcs[0], len[SKU_HT20]);
++	skb_put_data(skb, &la.mcs[1], len[SKU_HT40]);
++
++	/* vht */
++	for (i = 0; i < 4; i++) {
++		skb_put_data(skb, &la.mcs[i], sizeof(la.mcs[i]));
++		skb_put_zero(skb, 2);  /* padding */
++	}
++
++	/* he */
++	skb_put_data(skb, &la.ru[0], sizeof(la.ru));
++
++	/* eht */
++	skb_put_data(skb, &la.eht[0], sizeof(la.eht));
++
++	/* padding */
++	skb_put_zero(skb, MT7996_SKU_PATH_NUM - MT7996_SKU_RATE_NUM);
++
++	ret = mt76_mcu_skb_send_msg(&dev->mt76, skb,
++				    MCU_WM_UNI_CMD(TXPOWER), true);
++	if (ret)
++		return ret;
++
++	/* only set per-path power table when it's configured */
++	if (!la_path.ofdm[0])
++		return 0;
++
++	skb = mt76_mcu_msg_alloc(&dev->mt76, NULL,
++				 sizeof(req) + MT7996_SKU_PATH_NUM);
++	if (!skb)
++		return -ENOMEM;
++	req.power_limit_type = TX_POWER_LIMIT_TABLE_PATH;
++
++	skb_put_data(skb, &req, sizeof(req));
++	skb_put_data(skb, &la_path.cck, sizeof(la_path.cck));
++	skb_put_data(skb, &la_path.ofdm, sizeof(la_path.ofdm));
++	skb_put_data(skb, &la_path.ofdm_bf, sizeof(la_path.ofdm_bf));
++
++	for (i = 0; i < 32; i++) {
++		bool bf = i % 2;
++		u8 idx = i / 2;
++		s8 *buf = bf ? la_path.ru_bf[idx] : la_path.ru[idx];
++
++		skb_put_data(skb, buf, sizeof(la_path.ru[0]));
++	}
++
++	return mt76_mcu_skb_send_msg(&dev->mt76, skb,
++				     MCU_WM_UNI_CMD(TXPOWER), true);
++}
++
+ #ifdef CONFIG_MTK_VENDOR
+ void mt7996_set_wireless_vif(void *data, u8 *mac, struct ieee80211_vif *vif)
+ {
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 7808c35..6fc5ab3 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -777,6 +777,18 @@ enum {
+ #define MT7996_MAX_BSS_OFFLOAD_SIZE	(MT7996_MAX_BEACON_SIZE +		\
+ 					 MT7996_BEACON_UPDATE_SIZE)
+ 
++static inline s8
++mt7996_get_power_bound(struct mt7996_phy *phy, s8 txpower)
++{
++	struct mt76_phy *mphy = phy->mt76;
++	int n_chains = hweight8(mphy->antenna_mask);
++
++	txpower = mt76_get_sar_power(mphy, mphy->chandef.chan, txpower * 2);
++	txpower -= mt76_tx_power_nss_delta(n_chains);
++
++	return txpower;
++}
++
+ enum {
+ 	UNI_BAND_CONFIG_RADIO_ENABLE,
+ 	UNI_BAND_CONFIG_RTS_THRESHOLD = 0x08,
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 7269076..34c8fe6 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -64,6 +64,7 @@
+ #define MT7996_BUILD_TIME_LEN		24
+ 
+ #define MT7996_SKU_RATE_NUM		417
++#define MT7996_SKU_PATH_NUM		494
+ 
+ #define MT7996_RRO_MAX_SESSION		1024
+ #define MT7996_RRO_WINDOW_MAX_LEN	1024
+@@ -614,6 +615,7 @@ int mt7996_mcu_set_tx_power_ctrl(struct mt7996_phy *phy, u8 power_ctrl_id, u8 da
+ int mt7996_mcu_get_tx_power_info(struct mt7996_phy *phy, u8 category, void *event);
+ int mt7996_mcu_apply_group_cal(struct mt7996_dev *dev);
+ int mt7996_mcu_apply_tx_dpd(struct mt7996_phy *phy);
++int mt7996_mcu_set_txpower_sku(struct mt7996_phy *phy);
+ int mt7996_mcu_set_scs(struct mt7996_phy *phy, u8 enable);
+ void mt7996_mcu_scs_sta_poll(struct work_struct *work);
+ #ifdef CONFIG_NL80211_TESTMODE
+-- 
+2.18.0
+

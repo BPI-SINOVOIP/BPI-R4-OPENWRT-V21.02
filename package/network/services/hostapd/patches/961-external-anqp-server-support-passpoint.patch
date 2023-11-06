@@ -1,0 +1,44 @@
+diff --git a/hostapd/config_file.c b/hostapd/config_file.c
+index 83f15ef..59218b7 100644
+--- a/hostapd/config_file.c
++++ b/hostapd/config_file.c
+@@ -4311,6 +4311,10 @@ static int hostapd_config_fill(struct hostapd_config *conf,
+ 	} else if (os_strcmp(buf, "anqp_3gpp_cell_net") == 0) {
+ 		if (parse_3gpp_cell_net(bss, pos, line) < 0)
+ 			return 1;
++#ifdef CONFIG_MTK_PASSPOINT
++	} else if (os_strcmp(buf, "external_anqp_server_test") == 0) {
++		bss->external_anqp_server = atoi(pos);
++#endif
+ 	} else if (os_strcmp(buf, "nai_realm") == 0) {
+ 		if (parse_nai_realm(bss, pos, line) < 0)
+ 			return 1;
+diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
+index 0d762e9..c21f30f 100644
+--- a/src/ap/ap_config.h
++++ b/src/ap/ap_config.h
+@@ -603,6 +603,10 @@ struct hostapd_bss_config {
+ 	unsigned int aoc_count;
+ 	struct hostapd_advice_of_charge *aoc_data;
+ 
++#ifdef CONFIG_MTK_PASSPOINT
++	int external_anqp_server;
++#endif
++
+ 	/* IEEE 802.11u - Network Authentication Type */
+ 	u8 *network_auth_type;
+ 	size_t network_auth_type_len;
+diff --git a/src/ap/gas_serv.c b/src/ap/gas_serv.c
+index 7d87a11..9a9afb0 100644
+--- a/src/ap/gas_serv.c
++++ b/src/ap/gas_serv.c
+@@ -1798,6 +1798,9 @@ static void gas_serv_rx_gas_comeback_req(struct hostapd_data *hapd,
+ 	u8 dialog_token;
+ 	size_t frag_len;
+ 	int more = 0;
++#ifdef CONFIG_MTK_PASSPOINT
++	u16 status_code = (hapd->conf->external_anqp_server) ? WLAN_STATUS_ADV_SRV_UNREACHABLE : WLAN_STATUS_SUCCESS;
++#endif
+ 
+ 	wpa_hexdump(MSG_DEBUG, "GAS: RX GAS Comeback Request", data, len);
+ 	if (len < 1)

@@ -1,0 +1,28 @@
+From b0dfaaf6005e1e4293e580edb003f0c1116b5f0c Mon Sep 17 00:00:00 2001
+From: Sam Shih <sam.shih@mediatek.com>
+Date: Tue, 30 May 2023 20:00:18 +0800
+Subject: [PATCH] 
+ [autobuild][999-2951-mtketh-disable-eth-tx-timeout-reset.patch]
+
+---
+ drivers/net/ethernet/mediatek/mtk_eth_soc.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/mediatek/mtk_eth_soc.c b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+index 8ba80d94e..96f6d1941 100755
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -3281,8 +3281,8 @@ static void mtk_tx_timeout(struct net_device *dev)
+ 	netif_err(eth, tx_err, dev,
+ 		  "transmit timed out\n");
+ 
+-	if (atomic_read(&reset_lock) == 0)
+-		schedule_work(&eth->pending_work);
++//	if (atomic_read(&reset_lock) == 0)
++//		schedule_work(&eth->pending_work);
+ }
+ 
+ static irqreturn_t mtk_handle_irq_rx(int irq, void *priv)
+-- 
+2.34.1
+

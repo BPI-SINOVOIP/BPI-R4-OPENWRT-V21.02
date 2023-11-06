@@ -1,0 +1,148 @@
+Index: hostapd-2022-06-02-4383528e/src/ap/ap_config.h
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/ap/ap_config.h
++++ hostapd-2022-06-02-4383528e/src/ap/ap_config.h
+@@ -487,6 +487,7 @@ struct hostapd_bss_config {
+ 	int okc; /* Opportunistic Key Caching */
+ 
+ 	int wps_state;
++	u8 wps_ie_in_assoc_resp;
+ #ifdef CONFIG_WPS
+ 	int wps_independent;
+ 	int ap_setup_locked;
+Index: hostapd-2022-06-02-4383528e/src/ap/ap_drv_ops.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/ap/ap_drv_ops.c
++++ hostapd-2022-06-02-4383528e/src/ap/ap_drv_ops.c
+@@ -141,7 +141,7 @@ int hostapd_build_ap_extra_ies(struct ho
+ #endif /* CONFIG_P2P_MANAGER */
+ 
+ #ifdef CONFIG_WPS
+-	if (hapd->conf->wps_state) {
++	if (hapd->conf->wps_state && hapd->conf->wps_ie_in_assoc_resp) {
+ 		struct wpabuf *a = wps_build_assoc_resp_ie();
+ 		add_buf(&assocresp, a);
+ 		wpabuf_free(a);
+Index: hostapd-2022-06-02-4383528e/src/wps/wps_registrar.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/wps/wps_registrar.c
++++ hostapd-2022-06-02-4383528e/src/wps/wps_registrar.c
+@@ -792,6 +792,7 @@ int wps_registrar_add_pin(struct wps_reg
+ 			  int timeout)
+ {
+ 	struct wps_uuid_pin *p;
++	struct hostapd_data *hapd = reg->cb_ctx;
+ 
+ 	p = os_zalloc(sizeof(*p));
+ 	if (p == NULL)
+@@ -831,6 +832,7 @@ int wps_registrar_add_pin(struct wps_reg
+ 	else
+ 		wps_registrar_add_authorized_mac(
+ 			reg, (u8 *) "\xff\xff\xff\xff\xff\xff");
++	hapd->conf->wps_ie_in_assoc_resp = 1;
+ 	wps_registrar_selected_registrar_changed(reg, 0);
+ 	eloop_cancel_timeout(wps_registrar_set_selected_timeout, reg, NULL);
+ 	eloop_register_timeout(WPS_PBC_WALK_TIME, 0,
+@@ -846,6 +848,7 @@ static void wps_registrar_remove_pin(str
+ {
+ 	u8 *addr;
+ 	u8 bcast[ETH_ALEN] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
++	struct hostapd_data *hapd = reg->cb_ctx;
+ 
+ 	if (is_zero_ether_addr(pin->enrollee_addr))
+ 		addr = bcast;
+@@ -853,6 +856,7 @@ static void wps_registrar_remove_pin(str
+ 		addr = pin->enrollee_addr;
+ 	wps_registrar_remove_authorized_mac(reg, addr);
+ 	wps_remove_pin(pin);
++	hapd->conf->wps_ie_in_assoc_resp = 0;
+ 	wps_registrar_selected_registrar_changed(reg, 0);
+ }
+ 
+@@ -1014,12 +1018,14 @@ int wps_registrar_unlock_pin(struct wps_
+ 
+ static void wps_registrar_stop_pbc(struct wps_registrar *reg)
+ {
++	struct hostapd_data *hapd = reg->cb_ctx;
+
+ 	reg->selected_registrar = 0;
+ 	reg->pbc = 0;
+ 	os_memset(reg->p2p_dev_addr, 0, ETH_ALEN);
+ 	wps_registrar_remove_authorized_mac(reg,
+ 					    (u8 *) "\xff\xff\xff\xff\xff\xff");
++	hapd->conf->wps_ie_in_assoc_resp = 0;
+ 	wps_registrar_selected_registrar_changed(reg, 0);
+ }
+ 
+@@ -1050,7 +1057,8 @@ static void wps_registrar_pbc_timeout(vo
+ int wps_registrar_button_pushed(struct wps_registrar *reg,
+ 				const u8 *p2p_dev_addr)
+ {
+
++	struct hostapd_data *hapd = reg->cb_ctx;
+ 	if (p2p_dev_addr == NULL &&
+ 	    wps_registrar_pbc_overlap(reg, NULL, NULL)) {
+ 		wpa_printf(MSG_DEBUG, "WPS: PBC overlap - do not start PBC "
+@@ -1067,6 +1076,7 @@ int wps_registrar_button_pushed(struct w
+ 		os_memset(reg->p2p_dev_addr, 0, ETH_ALEN);
+ 	wps_registrar_add_authorized_mac(reg,
+ 					 (u8 *) "\xff\xff\xff\xff\xff\xff");
++	hapd->conf->wps_ie_in_assoc_resp = 1;
+ 	wps_registrar_selected_registrar_changed(reg, 0);
+ 
+ 	wps_pbc_active_event(reg->wps);
+@@ -1089,10 +1099,12 @@ static void wps_registrar_pbc_completed(
+ 
+ static void wps_registrar_pin_completed(struct wps_registrar *reg)
+ {
+
++	struct hostapd_data *hapd = reg->cb_ctx;
+ 	wpa_printf(MSG_DEBUG, "WPS: PIN completed using internal Registrar");
+ 	eloop_cancel_timeout(wps_registrar_set_selected_timeout, reg, NULL);
+ 	reg->selected_registrar = 0;
++	hapd->conf->wps_ie_in_assoc_resp = 0;
+ 	wps_registrar_selected_registrar_changed(reg, 0);
+ }
+ 
+@@ -3511,12 +3524,14 @@ static void wps_registrar_set_selected_t
+ 					       void *timeout_ctx)
+ {
+ 	struct wps_registrar *reg = eloop_ctx;
++	struct hostapd_data *hapd = reg->cb_ctx;
+ 
+ 	wpa_printf(MSG_DEBUG, "WPS: Selected Registrar timeout - "
+ 		   "unselect internal Registrar");
+ 	reg->selected_registrar = 0;
+ 	reg->pbc = 0;
+ 	wps_registrar_expire_pins(reg);
++	hapd->conf->wps_ie_in_assoc_resp = 0;
+ 	wps_registrar_selected_registrar_changed(reg, 0);
+ }
+ 
+@@ -3740,6 +3755,7 @@ int wps_registrar_add_nfc_pw_token(struc
+ 				   int pk_hash_provided_oob)
+ {
+ 	struct wps_nfc_pw_token *token;
++	struct hostapd_data *hapd = reg->cb_ctx;
+ 
+ 	if (dev_pw_len > WPS_OOB_DEVICE_PASSWORD_LEN)
+ 		return -1;
+@@ -3776,6 +3792,7 @@ int wps_registrar_add_nfc_pw_token(struc
+ 	reg->pbc = 0;
+ 	wps_registrar_add_authorized_mac(reg,
+ 					 (u8 *) "\xff\xff\xff\xff\xff\xff");
++	hapd->conf->wps_ie_in_assoc_resp = 1;
+ 	wps_registrar_selected_registrar_changed(reg, pw_id);
+ 	eloop_cancel_timeout(wps_registrar_set_selected_timeout, reg, NULL);
+ 	eloop_register_timeout(WPS_PBC_WALK_TIME, 0,
+@@ -3823,8 +3840,10 @@ int wps_registrar_add_nfc_password_token
+ void wps_registrar_remove_nfc_pw_token(struct wps_registrar *reg,
+ 				       struct wps_nfc_pw_token *token)
+ {
++	struct hostapd_data *hapd = reg->cb_ctx;
+ 	wps_registrar_remove_authorized_mac(reg,
+ 					    (u8 *) "\xff\xff\xff\xff\xff\xff");
++	hapd->conf->wps_ie_in_assoc_resp = 0;
+ 	wps_registrar_selected_registrar_changed(reg, 0);
+ 
+ 	/*

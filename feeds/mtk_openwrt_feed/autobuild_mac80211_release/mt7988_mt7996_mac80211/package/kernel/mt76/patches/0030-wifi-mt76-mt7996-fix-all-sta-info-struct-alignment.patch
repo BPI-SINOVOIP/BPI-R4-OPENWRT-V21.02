@@ -1,0 +1,26 @@
+From b1d7c2518edfcf9fe96a0231132449c2f924d1d6 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Fri, 6 Oct 2023 16:39:39 +0800
+Subject: [PATCH 30/98] wifi: mt76: mt7996: fix all sta info struct alignment
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/mcu.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 296acbd..af7cd18 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -219,7 +219,7 @@ struct mt7996_mcu_all_sta_info_event {
+         u8 more;
+         u8 rsv2;
+         __le16 sta_num;
+-        u8 rsv3[2];
++        u8 rsv3[4];
+ 
+ 	union {
+ 		struct all_sta_trx_rate rate[0];
+-- 
+2.18.0
+

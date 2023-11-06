@@ -1,0 +1,6539 @@
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/README
+===================================================================
+--- /dev/null
++++ b/wsc/README
+@@ -0,0 +1,9 @@
++Mediatek WPS(WiFi Portected Setup) miniupnpd supported
++
++Please firstly refer to "MediatekWPSMiniUPnPDaemonHowTo.doc". 
++
++Release Notes
++--------
++2.3.0:
++	1. Initial verison.
++ 
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/Version
+===================================================================
+--- /dev/null
++++ b/wsc/Version
+@@ -0,0 +1 @@
++2.3.0
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/sample_util.c
+===================================================================
+--- /dev/null
++++ b/wsc/sample_util.c
+@@ -0,0 +1,292 @@
++///////////////////////////////////////////////////////////////////////////
++//
++// Copyright (c) 2000-2003 Intel Corporation 
++// All rights reserved. 
++//
++// Redistribution and use in source and binary forms, with or without 
++// modification, are permitted provided that the following conditions are met: 
++//
++// * Redistributions of source code must retain the above copyright notice, 
++// this list of conditions and the following disclaimer. 
++// * Redistributions in binary form must reproduce the above copyright notice, 
++// this list of conditions and the following disclaimer in the documentation 
++// and/or other materials provided with the distribution. 
++// * Neither name of Intel Corporation nor the names of its contributors 
++// may be used to endorse or promote products derived from this software 
++// without specific prior written permission.
++// 
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
++// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
++// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR 
++// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL INTEL OR 
++// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, 
++// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
++// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR 
++// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
++// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS 
++// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++//
++///////////////////////////////////////////////////////////////////////////
++
++#include <stdarg.h>
++#include "sample_util.h"
++
++/********************************************************************************
++ * SampleUtil_GetElementValue
++ *
++ * Description: 
++ *       Given a DOM node such as <Channel>11</Channel>, this routine
++ *       extracts the value (e.g., 11) from the node and returns it as 
++ *       a string. The string must be freed by the caller using 
++ *       free.
++ *
++ * Parameters:
++ *   node -- The DOM node from which to extract the value
++ *
++ ********************************************************************************/
++
++char *
++SampleUtil_GetElementValue( IN IXML_Element * element )
++{
++
++    IXML_Node *child = ixmlNode_getFirstChild( ( IXML_Node * ) element );
++
++    char *temp = NULL;
++
++    if( ( child != 0 ) && ( ixmlNode_getNodeType( child ) == eTEXT_NODE ) ) {
++        temp = strdup( ixmlNode_getNodeValue( child ) );
++    }
++
++    return temp;
++}
++
++
++/********************************************************************************
++ * SampleUtil_GetFirstServiceList
++ *
++ * Description: 
++ *       Given a DOM node representing a UPnP Device Description Document,
++ *       this routine parses the document and finds the first service list
++ *       (i.e., the service list for the root device).  The service list
++ *       is returned as a DOM node list.
++ *
++ * Parameters:
++ *   node -- The DOM node from which to extract the service list
++ *
++ ********************************************************************************/
++IXML_NodeList *
++SampleUtil_GetFirstServiceList(
++	IN IXML_Document * doc)
++{
++    IXML_NodeList *ServiceList = NULL;
++    IXML_NodeList *servlistnodelist = NULL;
++    IXML_Node *servlistnode = NULL;
++
++    servlistnodelist = ixmlDocument_getElementsByTagName(doc, "serviceList");
++    if (servlistnodelist && ixmlNodeList_length(servlistnodelist))
++	{
++
++        /*
++           we only care about the first service list, from the root device 
++         */
++		servlistnode = ixmlNodeList_item(servlistnodelist, 0);
++
++        /*
++           create as list of DOM nodes 
++         */
++		ServiceList = ixmlElement_getElementsByTagName((IXML_Element *)servlistnode, "service");
++    }
++
++	if (servlistnodelist)
++		ixmlNodeList_free(servlistnodelist);
++
++    return ServiceList;
++}
++
++
++/********************************************************************************
++ * SampleUtil_GetFirstDocumentItem
++ *
++ * Description: 
++ *       Given a document node, this routine searches for the first element
++ *       named by the input string item, and returns its value as a string.
++ *       String must be freed by caller using free.
++ * Parameters:
++ *   doc -- The DOM document from which to extract the value
++ *   item -- The item to search for
++ *
++ ********************************************************************************/
++char *
++SampleUtil_GetFirstDocumentItem(
++	IN IXML_Document * doc,
++	IN const char *item)
++{
++    IXML_NodeList *nodeList = NULL;
++    IXML_Node *textNode = NULL;
++    IXML_Node *tmpNode = NULL;
++
++    char *ret = NULL;
++
++    nodeList = ixmlDocument_getElementsByTagName( doc, ( char * )item );
++
++    if( nodeList ) {
++        if( ( tmpNode = ixmlNodeList_item( nodeList, 0 ) ) ) {
++            textNode = ixmlNode_getFirstChild( tmpNode );
++
++            ret = strdup( ixmlNode_getNodeValue( textNode ) );
++        }
++    }
++
++    if( nodeList )
++        ixmlNodeList_free( nodeList );
++    return ret;
++}
++
++
++/********************************************************************************
++ * SampleUtil_GetFirstElementItem
++ *
++ * Description: 
++ *       Given a DOM element, this routine searches for the first element
++ *       named by the input string item, and returns its value as a string.
++ *       The string must be freed using free.
++ * Parameters:
++ *   node -- The DOM element from which to extract the value
++ *   item -- The item to search for
++ *
++ ********************************************************************************/
++char *
++SampleUtil_GetFirstElementItem(
++	IN IXML_Element * element,
++	IN const char *item)
++{
++    IXML_NodeList *nodeList = NULL;
++    IXML_Node *textNode = NULL;
++    IXML_Node *tmpNode = NULL;
++
++    char *ret = NULL;
++
++    nodeList = ixmlElement_getElementsByTagName( element, ( char * )item );
++
++    if( nodeList == NULL ) {
++        return NULL;
++    }
++
++    if( ( tmpNode = ixmlNodeList_item( nodeList, 0 ) ) == NULL ) {
++        ixmlNodeList_free( nodeList );
++        return NULL;
++    }
++
++    textNode = ixmlNode_getFirstChild( tmpNode );
++
++    ret = strdup( ixmlNode_getNodeValue( textNode ) );
++
++    if( !ret ) {
++        ixmlNodeList_free( nodeList );
++        return NULL;
++    }
++
++    ixmlNodeList_free( nodeList );
++
++    return ret;
++}
++
++
++/********************************************************************************
++ * SampleUtil_FindAndParseService
++ *
++ * Description: 
++ *       This routine finds the first occurance of a service in a DOM representation
++ *       of a description document and parses it.  
++ *
++ * Parameters:
++ *   DescDoc -- The DOM description document
++ *   location -- The location of the description document
++ *   serviceSearchType -- The type of service to search for
++ *   serviceId -- OUT -- The service ID
++ *   eventURL -- OUT -- The event URL for the service
++ *   controlURL -- OUT -- The control URL for the service
++ *
++ ********************************************************************************/
++int
++SampleUtil_FindAndParseService(
++	IN IXML_Document * DescDoc,
++                                IN char *location,
++                                IN char *serviceType,
++                                OUT char **serviceId,
++	OUT char **SCPDURL,
++                                OUT char **eventURL,
++	OUT char **controlURL)
++{
++    int i, length, found = 0;
++    int ret;
++    char *tempServiceType = NULL;
++    char *baseURL = NULL;
++    char *base;
++    char *relcontrolURL = NULL, *releventURL = NULL, *relSCPDURL = NULL;
++    IXML_NodeList *serviceList = NULL;
++    IXML_Element *service = NULL;
++
++    baseURL = SampleUtil_GetFirstDocumentItem(DescDoc, "URLBase");
++
++    if( baseURL )
++        base = baseURL;
++    else
++        base = location;
++
++
++    serviceList = SampleUtil_GetFirstServiceList(DescDoc);
++    length = ixmlNodeList_length(serviceList);
++    for (i = 0; i < length; i++)
++	{
++        service = (IXML_Element *)ixmlNodeList_item(serviceList, i);
++        tempServiceType = SampleUtil_GetFirstElementItem((IXML_Element *)service, "serviceType");
++
++        if (strcmp(tempServiceType, serviceType) == 0) 
++		{
++			*serviceId = SampleUtil_GetFirstElementItem(service, "serviceId");
++			relSCPDURL = SampleUtil_GetFirstElementItem(service, "SCPDURL");
++			relcontrolURL = SampleUtil_GetFirstElementItem(service, "controlURL");
++			releventURL = SampleUtil_GetFirstElementItem(service, "eventSubURL");
++			
++			*SCPDURL = malloc(strlen(base) + strlen(relSCPDURL) + 1);
++			if(*SCPDURL)
++				ret = UpnpResolveURL(base, relSCPDURL, *SCPDURL);
++
++			*controlURL = malloc(strlen(base) + strlen(relcontrolURL) + 1);
++			if(*controlURL)
++				ret = UpnpResolveURL(base, relcontrolURL, *controlURL);
++
++			*eventURL = malloc(strlen(base) + strlen(releventURL) + 1);
++			if(*eventURL)
++				ret = UpnpResolveURL(base, releventURL, *eventURL);
++
++			if(relSCPDURL)
++				free(relSCPDURL);
++			if(relcontrolURL)
++				free(relcontrolURL);
++			if(releventURL)
++				free(releventURL);
++            relSCPDURL = relcontrolURL = releventURL = NULL;
++
++            found = 1;
++            break;
++        }
++
++        if (tempServiceType)
++            free(tempServiceType);
++        tempServiceType = NULL;
++    }
++
++    if( tempServiceType )
++        free( tempServiceType );
++    if( serviceList )
++        ixmlNodeList_free( serviceList );
++    if( baseURL )
++        free( baseURL );
++
++    return ( found );
++}
++
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/sample_util.h
+===================================================================
+--- /dev/null
++++ b/wsc/sample_util.h
+@@ -0,0 +1,146 @@
++///////////////////////////////////////////////////////////////////////////
++//
++// Copyright (c) 2000-2003 Intel Corporation 
++// All rights reserved. 
++//
++// Redistribution and use in source and binary forms, with or without 
++// modification, are permitted provided that the following conditions are met: 
++//
++// * Redistributions of source code must retain the above copyright notice, 
++// this list of conditions and the following disclaimer. 
++// * Redistributions in binary form must reproduce the above copyright notice, 
++// this list of conditions and the following disclaimer in the documentation 
++// and/or other materials provided with the distribution. 
++// * Neither name of Intel Corporation nor the names of its contributors 
++// may be used to endorse or promote products derived from this software 
++// without specific prior written permission.
++// 
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
++// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
++// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR 
++// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL INTEL OR 
++// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, 
++// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
++// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR 
++// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
++// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS 
++// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++//
++///////////////////////////////////////////////////////////////////////////
++
++#ifndef SAMPLE_UTIL_H
++#define SAMPLE_UTIL_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include <stdlib.h>
++#include <string.h>
++#include "upnptools.h"
++#include "ixml.h"
++
++typedef enum {
++	STATE_UPDATE = 0,
++	DEVICE_ADDED =1,
++	DEVICE_REMOVED=2,
++	GET_VAR_COMPLETE=3
++} eventType;
++
++
++/********************************************************************************
++ * SampleUtil_GetElementValue
++ *
++ * Description: 
++ *       Given a DOM node such as <Channel>11</Channel>, this routine
++ *       extracts the value (e.g., 11) from the node and returns it as 
++ *       a string. The string must be freed by the caller using 
++ *       free.
++ *
++ * Parameters:
++ *   node -- The DOM node from which to extract the value
++ *
++ ********************************************************************************/
++char * SampleUtil_GetElementValue(IN IXML_Element *element);
++
++/********************************************************************************
++ * SampleUtil_GetFirstServiceList
++ *
++ * Description: 
++ *       Given a DOM node representing a UPnP Device Description Document,
++ *       this routine parses the document and finds the first service list
++ *       (i.e., the service list for the root device).  The service list
++ *       is returned as a DOM node list. The NodeList must be freed using
++ *       NodeList_free.
++ *
++ * Parameters:
++ *   node -- The DOM node from which to extract the service list
++ *
++ ********************************************************************************/
++
++IXML_NodeList *SampleUtil_GetFirstServiceList(IN IXML_Document * doc); 
++
++
++/********************************************************************************
++ * SampleUtil_GetFirstDocumentItem
++ *
++ * Description: 
++ *       Given a document node, this routine searches for the first element
++ *       named by the input string item, and returns its value as a string.
++ *       String must be freed by caller using free.
++ * Parameters:
++ *   doc -- The DOM document from which to extract the value
++ *   item -- The item to search for
++ *
++ ********************************************************************************/
++char * SampleUtil_GetFirstDocumentItem(IN IXML_Document *doc, IN const char *item); 
++
++
++/********************************************************************************
++ * SampleUtil_GetFirstElementItem
++ *
++ * Description: 
++ *       Given a DOM element, this routine searches for the first element
++ *       named by the input string item, and returns its value as a string.
++ *       The string must be freed using free.
++ * Parameters:
++ *   node -- The DOM element from which to extract the value
++ *   item -- The item to search for
++ *
++ ********************************************************************************/
++char * SampleUtil_GetFirstElementItem(IN IXML_Element *element, IN const char *item); 
++
++
++/********************************************************************************
++ * SampleUtil_FindAndParseService
++ *
++ * Description: 
++ *       This routine finds the first occurance of a service in a DOM representation
++ *       of a description document and parses it.  Note that this function currently
++ *       assumes that the eventURL and controlURL values in the service definitions
++ *       are full URLs.  Relative URLs are not handled here.
++ *
++ * Parameters:
++ *   DescDoc -- The DOM description document
++ *   location -- The location of the description document
++ *   serviceSearchType -- The type of service to search for
++ *   serviceId -- OUT -- The service ID
++ *   eventURL -- OUT -- The event URL for the service
++ *   controlURL -- OUT -- The control URL for the service
++ *
++ ********************************************************************************/
++int SampleUtil_FindAndParseService (
++	IN IXML_Document *DescDoc,
++	IN char* location,
++	IN char *serviceType,
++	OUT char **serviceId,
++	OUT char **SCDPURL,
++	OUT char **eventURL,
++	OUT char **controlURL);
++
++#ifdef __cplusplus
++};
++#endif
++
++#endif /* UPNPSDK_UTIL_H */
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_common.c
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_common.c
+@@ -0,0 +1,221 @@
++#include <stdio.h>
++#include <stdarg.h>
++#include <stdlib.h>
++#include "wsc_common.h"
++
++
++static const char cb64[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++static const char cd64[]="|$$$}rstuvwxyz{$$$$$$$>?@ABCDEFGHIJKLMNOPQRSTUVW$$$$$$XYZ[\\]^_`abcdefghijklmnopq";
++
++
++extern int wsc_debug_level;
++
++#ifdef RT_DEBUG
++void DBGPRINTF(int level, char *fmt, ...)
++{
++	va_list ap;
++
++	va_start(ap, fmt);
++	if (level <= wsc_debug_level)
++	{
++		vprintf(fmt, ap);
++	}
++	va_end(ap);
++}
++#endif
++
++#ifdef ENABLE_WSC_SERVICE
++char * 
++WSCGetValueFromNameValueList(char *pbuf,
++                          const char *Name, int *len)
++{
++	char prefix[32], postfix[32], *ptr, *endptr;
++
++	*len = 0;
++	sprintf(prefix, "<%s", Name);
++	sprintf(postfix, "</%s>", Name);
++	ptr = strstr(pbuf, prefix);
++	ptr = strstr(ptr, ">");
++	/* for ">" */
++	ptr += 1;
++	endptr = strstr(pbuf, postfix);
++	if (ptr && endptr)
++	{
++		*len = endptr - ptr;
++	}
++
++	return ptr;
++}
++
++void wsc_chardump(char *title, char *ptr, int len)
++{
++
++	int32 i;
++	char *tmp = ptr;
++
++	if (RT_DBG_PKT <= wsc_debug_level)
++	{
++		printf("\n===StartOfMsgCharDump:%s\n", title);
++		for(i = 0; i < len; i++)
++		{
++			printf("%c", tmp[i] & 0xff);
++		}
++		printf("\n===EndOfMsgCharDump!\n");
++	}
++
++	return;
++}
++
++void wsc_hexdump(char *title, char *ptr, int len)
++{
++
++	int32 i;
++	char *tmp = ptr;
++
++	if (RT_DBG_PKT <= wsc_debug_level)
++	{
++		printf("\n---StartOfMsgHexDump:%s\n", title);
++		for(i = 0; i < len; i++)
++		{
++			if(i%16==0 && i!=0)
++				printf("\n");
++			printf("%02x ", tmp[i] & 0xff);
++		}
++		printf("\n---EndOfMsgHexDump!\n");
++	}
++
++	return;
++}
++#endif /* ENABLE_WSC_SERVICE */
++
++/* encode 3 8-bit binary bytes as 4 '6-bit' characters */
++void ILibencodeblock( unsigned char in[3], unsigned char out[4], int len )
++{
++	out[0] = cb64[ in[0] >> 2 ];
++	out[1] = cb64[ ((in[0] & 0x03) << 4) | ((in[1] & 0xf0) >> 4) ];
++	out[2] = (unsigned char) (len > 1 ? cb64[ ((in[1] & 0x0f) << 2) | ((in[2] & 0xc0) >> 6) ] : '=');
++	out[3] = (unsigned char) (len > 2 ? cb64[ in[2] & 0x3f ] : '=');
++}
++
++/*! \fn ILibBase64Encode(unsigned char* input, const int inputlen, unsigned char** output)
++	\brief Base64 encode a stream adding padding and line breaks as per spec.
++	\par
++	\b Note: The encoded stream must be freed
++	\param input The stream to encode
++	\param inputlen The length of \a input
++	\param output The encoded stream
++	\returns The length of the encoded stream
++*/
++int ILibBase64Encode(unsigned char* input, const int inputlen, unsigned char** output)
++{
++	unsigned char* out;
++	unsigned char* in;
++	
++	*output = (unsigned char*)malloc(((inputlen * 4) / 3) + 5);
++	out = *output;
++
++	if (out == NULL)
++	{
++		return 0;
++	}
++
++	in  = input;
++	
++	if (input == NULL || inputlen == 0)
++	{
++		if (out)
++			free(out);
++		*output = NULL;
++		return 0;
++	}
++	
++	while ((in+3) <= (input+inputlen))
++	{
++		ILibencodeblock(in, out, 3);
++		in += 3;
++		out += 4;
++	}
++	if ((input+inputlen)-in == 1)
++	{
++		ILibencodeblock(in, out, 1);
++		out += 4;
++	}
++	else
++	if ((input+inputlen)-in == 2)
++	{
++		ILibencodeblock(in, out, 2);
++		out += 4;
++	}
++	*out = 0;
++	
++	return (int)(out-*output);
++}
++
++/* Decode 4 '6-bit' characters into 3 8-bit binary bytes */
++void ILibdecodeblock( unsigned char in[4], unsigned char out[3] )
++{
++	out[ 0 ] = (unsigned char ) (in[0] << 2 | in[1] >> 4);
++	out[ 1 ] = (unsigned char ) (in[1] << 4 | in[2] >> 2);
++	out[ 2 ] = (unsigned char ) (((in[2] << 6) & 0xc0) | in[3]);
++}
++
++/*! \fn ILibBase64Decode(unsigned char* input, const int inputlen, unsigned char** output)
++	\brief Decode a base64 encoded stream discarding padding, line breaks and noise
++	\par
++	\b Note: The decoded stream must be freed
++	\param input The stream to decode
++	\param inputlen The length of \a input
++	\param output The decoded stream
++	\returns The length of the decoded stream
++*/
++int ILibBase64Decode(unsigned char* input, const int inputlen, unsigned char** output)
++{
++	unsigned char* inptr;
++	unsigned char* out;
++	unsigned char v;
++	unsigned char in[4];
++	int i, len;
++	
++	if (input == NULL || inputlen == 0)
++	{
++		*output = NULL;
++		return 0;
++	}
++	
++	*output = (unsigned char*)malloc(((inputlen * 3) / 4) + 4);
++	out = *output;
++	inptr = input;
++	
++	while( inptr <= (input+inputlen) )
++	{
++		for( len = 0, i = 0; i < 4 && inptr <= (input+inputlen); i++ )
++		{
++			v = 0;
++			while( inptr <= (input+inputlen) && v == 0 ) {
++				v = (unsigned char) *inptr;
++				inptr++;
++				v = (unsigned char) ((v < 43 || v > 122) ? 0 : cd64[ v - 43 ]);
++				if( v ) {
++					v = (unsigned char) ((v == '$') ? 0 : v - 61);
++				}
++			}
++			if( inptr <= (input+inputlen) ) {
++				len++;
++				if( v ) {
++					in[ i ] = (unsigned char) (v - 1);
++				}
++			}
++			else {
++				in[i] = 0;
++			}
++		}
++		if( len )
++		{
++			ILibdecodeblock( in, out );
++			out += len-1;
++		}
++	}
++	*out = 0;
++	return (int)(out-*output);
++}
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_common.h
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_common.h
+@@ -0,0 +1,277 @@
++#ifndef __WSC_COMMON_H__
++#define __WSC_COMMON_H__
++
++#include <stdio.h>
++#include <errno.h>
++#include <string.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include "config.h"
++
++#define WSC_VERSION   "0.1.1"
++
++#ifdef ENABLE_WSC_SERVICE
++
++#define DEFAULT_WPS_PORT (8888)
++
++extern unsigned short WPS_PORT;
++extern int netlink_sock;
++#ifndef TRUE
++#define TRUE 1
++#endif
++
++#ifndef FALSE
++#define FALSE 0
++#endif
++typedef char * DOMString;   
++#define IXML_Document DOMString
++
++
++/** {\bf UpnpAddToAction} creates an action request packet based on its input 
++ *  parameters (status variable name and value pair). This API is specially 
++ *  suitable inside a loop to add any number input parameters into an existing
++ *  action. If no action document exists in the beginning then a 
++ *  {\bf Upnp_Document} variable initialized with {\tt NULL} should be passed 
++ *  as a parameter.
++ *
++ *  @return [int] An integer representing one of the following:
++ *    \begin{itemize}
++ *      \item {\tt UPNP_E_SUCCESS}: The operation completed successfully.
++ *      \item {\tt UPNP_E_INVALID_PARAM}: One or more of the parameters 
++ *                                        are invalid.
++ *      \item {\tt UPNP_E_OUTOF_MEMORY}: Insufficient resources exist to 
++ *              complete this operation.
++ *    \end{itemize}
++ */
++
++int UpnpAddToAction(
++        IXML_Document * ActionDoc, 
++	                              /** A pointer to store the action 
++				          document node. */
++        const char * ActionName,   /** The action name. */
++        const char * ServType,     /** The service type.  */
++        const char * ArgName,      /** The status variable name. */
++        const char * ArgVal        /** The status variable value.  */
++        );
++
++
++/** {\bf UpnpAddToActionResponse} creates an action response
++ *  packet based on its output parameters (status variable name
++ *  and value pair). This API is especially suitable inside
++ *  a loop to add any number of input parameters into an existing action 
++ *  response. If no action document exists in the beginning, a 
++ *  {\bf Upnp_Document} variable initialized with {\tt NULL} should be passed 
++ *  as a parameter.
++ *
++ *  @return [int] An integer representing one of the following:
++ *    \begin{itemize}
++ *      \item {\tt UPNP_E_SUCCESS}: The operation completed successfully.
++ *      \item {\tt UPNP_E_INVALID_PARAM}: One or more of the parameters 
++ *                                        are invalid.
++ *      \item {\tt UPNP_E_OUTOF_MEMORY}: Insufficient resources exist to 
++ *              complete this operation.
++ *    \end{itemize}
++ */
++
++int UpnpAddToActionResponse(
++        IXML_Document * ActionResponse, 
++	                                   /** Pointer to a document to 
++					       store the action document 
++					       node. */
++        const char * ActionName,        /** The action name. */
++        const char * ServType,          /** The service type.  */
++        const char * ArgName,           /** The status variable name. */
++        const char * ArgVal             /** The status variable value.  */
++        );
++
++
++char * 
++WSCGetValueFromNameValueList(char *pbuffer,
++                          const char * Name, int *len);
++#endif /* ENABLE_WSC_SERVICE */
++
++typedef unsigned char 	uint8;
++typedef unsigned short	uint16;
++typedef unsigned int 	uint32;
++typedef signed char 	int8;
++typedef signed short	int16;
++typedef signed int		int32;
++
++#ifndef PACKED
++#define PACKED  __attribute__ ((packed))
++#endif
++
++#ifndef IFLA_IFNAME
++#define IFLA_IFNAME 3
++#endif
++#ifndef IFLA_WIRELESS
++#define IFLA_WIRELESS 11
++#endif
++
++#ifndef ASSERT
++#define ASSERT(expr)	\
++	do{\
++		if(!(expr)) \
++			printf("%s(%d): ASSERTION Error!\n", __FUNCTION__, __LINE__); \
++	}while(0);
++#endif
++
++#ifndef RT_DEBUG
++#define DBGPRINTF(args...) do{}while(0)
++#else
++//void DBGPRINTF(int level, char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
++void DBGPRINTF(int level, char *fmt, ...);
++#endif
++
++
++#ifndef IFNAMSIZ
++#define	IFNAMSIZ	16
++#endif
++
++#define MAC_ADDR_LEN 			6
++#define LENGTH_802_1_H			8
++
++
++#define BIT(x)	(1<<x)
++
++extern int WscUPnPOpMode;
++
++extern char WSC_IOCTL_IF[IFNAMSIZ];
++extern unsigned char HostMacAddr[MAC_ADDR_LEN];	// Used to save the MAC address of local host.
++
++#define HandleLock()
++#define HandleUnlock()
++
++#define DEFAULT_PID_FILE_PATH		"/var/run/wscd.pid"
++
++#define USE_XML_TEMPLATE
++#define DEFAULT_WEB_ROOT_DIR	"/etc/xml/"
++#define DEFAULT_DESC_FILE_NAME	"WFADeviceDesc.xml"
++
++
++#define WSC_SYS_ERROR	(-1)
++#define WSC_SYS_SUCCESS 0
++
++typedef enum{
++	WSC_UPNP_OPMODE_DISABLE = 0,
++	WSC_UPNP_OPMODE_DEV = 1,
++	WSC_UPNP_OPMODE_CP = 2,
++	WSC_UPNP_OPMODE_BOTH = 3
++}WSC_UPNP_OPMODE;
++
++
++typedef enum{
++	RT_DBG_OFF		= 0,
++	RT_DBG_ERROR	= 1,
++	RT_DBG_PKT		= 2,
++	RT_DBG_INFO	= 3,
++	RT_DBG_LOUD	= 4,
++	RT_DBG_ALL
++}WSC_DEBUG_LEVEL;
++
++// 802.1x authentication format
++#define IEEE8021X_FRAME_VERSION		1
++#define IEEE8021X_FRAME_TYPE_EAP	0
++typedef	struct	PACKED _IEEE8021X_FRAME{
++	uint8	Version;					// 1.0
++	uint8	Type;						// 0 = EAP Packet
++	uint16	Length;
++}IEEE8021X_FRAME, *PIEEE8021X_FRAME;
++
++
++// EAP frame format
++typedef enum{
++	EAP_FRAME_CODE_REQUEST = 0x1,
++	EAP_FRAME_CODE_RESPONSE = 0x2
++}EAP_FRAME_CODE;
++
++typedef enum{
++	EAP_FRAME_TYPE_IDENTITY = 0x1,
++	EAP_FRAME_TYPE_WSC = 0xfe,
++}EAP_FRAME_TYPE;
++
++// EAP frame format
++typedef	struct PACKED _EAP_FRAME{
++	uint8	Code;						// 1 = Request, 2 = Response
++	uint8	Id;
++	uint16	Length;
++	uint8	Type;						// 1 = Identity, 0xfe = reserved, used by WSC
++}EAP_FRAME, *PEAP_FRAME;
++
++
++// KernelSpace 2 UserSpace msg header
++#define WSC_K2UMSG_FLAG_SUCCESS		BIT(0)
++#define WSC_K2UMSG_FLAG_ERROR		BIT(1)
++#define WSC_K2UMSG_FLAG_
++
++#define RTMP_WSC_NLMSG_HDR_LEN		30		//signature(8) + envID(4) + ackID(4) + msgLen(4) + Flag(2) + segLen(2) + devAddr(6)
++typedef struct PACKED _RTMP_WSC_NLMSG_HDR{
++	uint8	signature[8];	/* Signature used to identify that this's a Mediatek specific NETLINK message. 
++								MUST be "RAWSCMSG" currently.
++							*/
++	uint32	envID;			// Unique event Identification assigned by sender.
++	uint32	ackID;			// Notify that this message is a repsone for the message whose event identifier is "ackID".
++	uint32	msgLen;			// Totally length for this message. This message may seperate in serveral packets.
++	uint16	flags;			
++	uint16	segLen;			/* The "segLen" means the actual data length in this one msg packet.
++								Because the NETLINK socket just support 256bytes for "IWCUSTOM" typed message, so we may 
++								need to do fragement for our msg. If one message was fragemented as serveral pieces, the 
++								user space receiver need to re-assemble it.
++							 */
++	uint8	devAddr[MAC_ADDR_LEN];		// MAC address of the net device which send this netlink msg.
++}RTMP_WSC_NLMSG_HDR;
++
++#define RTMP_WSC_MSG_HDR_LEN		12	//msgType(2) + msgSubType(2) + ipAddr(4) + len(4)
++typedef struct PACKED _RTMP_WSC_MSG_HDR{
++	uint16	msgType;
++	uint16	msgSubType;
++	uint32	ipAddr;
++	uint32	msgLen;		//Not include this header.
++}RTMP_WSC_MSG_HDR;
++
++/*
++  1. This data structure used for UPnP daeom send WSC_MSG to wireless driver in Kernel space.
++  2. This data structure must sync with Mediatek wireless driver( defined in "wsc.h").
++  3. The size of this structure is equal to the (802.11 header+802.1h header+802.1x header+EAP header).
++  4. The Addr1 must set as all zero for notify the kernel driver that this packet was sent by UPnP daemon.
++	  (Because it's imposssible that AP receive a wireless packet from station whose addr1=0)
++  5. Please don't use sizeof(struct _WscIoctlMsgHdr) unless you "PACK" this data structure in kernel and here.
++*/
++#define WSC_U2KMSG_HDR_LEN	41	// HeaderLen = LENGTH_802_11(24) + LENGTH_802_1_H(8) + IEEE8021X_FRAME_HDR(4) + EAP_FRAME_HDR(5)
++typedef	struct PACKED _WSC_U2KMSG_HDR{
++	uint32				envID;					//Event ID.
++	char				Addr1[MAC_ADDR_LEN];	//RA, should be the MAC address of the AP.
++	char				Addr2[MAC_ADDR_LEN];	//TA, should be the ipAddress of remote UPnP Device/CotrnolPoint.
++	char				Addr3[MAC_ADDR_LEN];	//DA, Not used now.
++	char				rsvWLHdr[2];			//Reserved space for remained 802.11 hdr content.
++	char				rsv1HHdr[LENGTH_802_1_H];//Reserved space for 802.1h header
++	IEEE8021X_FRAME 	IEEE8021XHdr;			//802.1X header
++	EAP_FRAME			EAPHdr;					//EAP frame header.
++}RTMP_WSC_U2KMSG_HDR;
++
++void wsc_chardump(char *title, char *ptr, int len);
++void wsc_hexdump(char *title, char *ptr, int len);
++
++extern int ioctl_sock;
++
++int ILibBase64Encode(unsigned char* input, const int inputlen, unsigned char** output);
++int ILibBase64Decode(unsigned char* input, const int inputlen, unsigned char** output);
++
++
++int wscK2UModuleInit(void);
++int wscU2KModuleInit(void);
++int wsc_set_oid(uint16 oid, char *data, int len);
++int wsc_get_oid(uint16 oid, char *data, int *len);
++
++#ifdef MASK_PARTIAL_MACADDR
++#define MAC2STR(a) (a)[0], (a)[3], (a)[4], (a)[5]
++#define MACSTR "%02x:**:**:%02x:%02x:%02x"
++#else
++/* Debug print format string for the MAC Address */
++#define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
++/* Debug print argument for the MAC Address */
++#define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
++#endif /* MASK_PARTIAL_MACADDR */
++
++#endif
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_ioctl.c
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_ioctl.c
+@@ -0,0 +1,142 @@
++/*
++	function handler for ioctl handler
++*/
++#include <unistd.h>
++#include <errno.h>
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <sys/ioctl.h>
++#include <linux/types.h>
++#include <linux/if.h>
++#include <linux/wireless.h>
++#include <netinet/in.h>
++#include "wsc_common.h"
++#include "wsc_ioctl.h"
++
++
++/******************************************************************************
++ * wsc_set_oid
++ *
++ * Description: 
++ *       Send Wsc Message to kernel space by ioctl function call.
++ *
++ * Parameters:
++ *    uint16 oid - The ioctl flag type for the ioctl function call.
++ *    char *data - The data message want to send by ioctl
++ *    int len    - The length of data 
++ *  
++ * Return Value:
++ *    Indicate if the ioctl success or failure.
++ *    	-1 = failure.
++ *    	0  = If success. 
++ *****************************************************************************/
++int wsc_set_oid(uint16 oid, char *data, int len)
++{
++	char *buf;
++	struct iwreq iwr;
++	
++	if(ioctl_sock < 0)
++		return -1;
++		
++	if((buf = malloc(len)) == NULL)
++		return -1;
++	
++	memset(buf, 0,len);
++	memset(&iwr, 0, sizeof(iwr));
++	strncpy(iwr.ifr_name, WSC_IOCTL_IF, IFNAMSIZ);
++	iwr.u.data.flags = oid;
++	iwr.u.data.flags |= OID_GET_SET_TOGGLE;
++		
++	if (data)
++		memcpy(buf, data, len);
++
++	iwr.u.data.pointer = (caddr_t) buf;
++	iwr.u.data.length = len;
++
++	if (ioctl(ioctl_sock, RT_PRIV_IOCTL, &iwr) < 0) {
++		DBGPRINTF(RT_DBG_INFO, "%s: oid=0x%x len (%d) failed", __FUNCTION__, oid, len);
++		free(buf);
++		return -1;
++	}
++	free(buf);
++	return 0;
++}
++
++
++/******************************************************************************
++ * wsc_get_oid
++ *
++ * Description: 
++ *       Get Wsc Message from kernel space by ioctl function call.
++ *
++ * Parameters:
++ *    uint16 oid - The ioctl flag type for the ioctl function call.
++ *    char *data - The data pointer want to receive msg from ioctl.
++ *    int len    - The length of returned data.
++ *  
++ * Return Value:
++ *    Indicate if the ioctl success or failure.
++ *    	-1 = failure.
++ *    	0  = If success. 
++ *****************************************************************************/
++int wsc_get_oid(uint16 oid, char *data, int *len)
++{
++	struct iwreq iwr;
++
++	if(ioctl_sock < 0 || data == NULL)
++		return -1;
++	
++	memset(&iwr, 0, sizeof(iwr));
++	strncpy(iwr.ifr_name, WSC_IOCTL_IF, IFNAMSIZ);
++	iwr.u.data.flags = oid;
++
++	iwr.u.data.pointer = (caddr_t)data;
++	if (ioctl(ioctl_sock, RT_PRIV_IOCTL, &iwr) < 0) {
++		DBGPRINTF(RT_DBG_ERROR, "%s: oid=0x%x failed", __FUNCTION__, oid);
++		return -1;
++	}
++	*len = iwr.u.data.length;
++	
++	return 0;
++}
++
++
++/******************************************************************************
++ * wscU2KModuleInit
++ *
++ * Description: 
++ *       Initialize the U2K Message subsystem(i.e. it's ioctl sub-system now).
++ *
++ * Parameters:
++ *    void
++ *  
++ * Return Value:
++ *    The created ioctl socket id or -1 to indicate if the initialize success or failure.
++ *    	-1 		  		 = failure.
++ *    	ioctl socket id  = If success. 
++ *****************************************************************************/
++int wscU2KModuleInit(void)
++{
++	int s;
++	struct ifreq ifr;
++	
++	/* open socket to kernel */
++	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
++	{
++		DBGPRINTF(RT_DBG_ERROR, "ioctl socket create failed! errno=%d!\n", errno);
++		return -1;
++	}
++	/* do it */
++	strncpy(ifr.ifr_name, WSC_IOCTL_IF, IFNAMSIZ);
++
++	if (ioctl(s, SIOCGIFINDEX, &ifr) < 0)
++	{
++		DBGPRINTF(RT_DBG_ERROR, "ioctl to get the interface(%s) index failed! errno=%d!\n" , ifr.ifr_name, errno);
++		return -1;
++	}
++
++	return s;
++
++}
++
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_ioctl.h
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_ioctl.h
+@@ -0,0 +1,24 @@
++/*
++	header file for wsc_ioctl
++
++*/
++#ifndef __WSC_IOCTL_H__
++#define __WSC_IOCTL_H__
++
++
++#if WIRELESS_EXT <= 11
++#ifndef SIOCDEVPRIVATE
++#define SIOCDEVPRIVATE                              0x8BE0
++#endif
++#define SIOCIWFIRSTPRIV								SIOCDEVPRIVATE
++#endif
++
++#define RT_PRIV_IOCTL								(SIOCIWFIRSTPRIV + 0x01)
++
++#define OID_GET_SET_TOGGLE							0x8000
++
++#define RT_OID_WSC_UUID								0x0753
++#define RT_OID_WSC_SET_SELECTED_REGISTRAR			0x0754
++#define RT_OID_WSC_EAPMSG							0x0755
++
++#endif
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_main.c
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_main.c
+@@ -0,0 +1,468 @@
++/***************************************
++	wsc main function
++****************************************/
++#include <stdio.h>
++#include <errno.h>
++#include <sys/types.h>
++#include <sys/time.h>
++#include <sys/resource.h>
++#include <sys/wait.h>
++#include <unistd.h> 
++#include <sys/socket.h> 
++#include <netinet/in.h>
++#include <arpa/inet.h>
++#include <net/if.h> 
++#include <sys/ioctl.h> 
++	   
++//#include "config.h"
++#include "upnpglobalvars.h"
++#include "wsc_common.h"
++#include "wsc_msg.h"
++#include "wsc_upnp.h"
++
++#include "upnpreplyparse.h"
++
++//int wsc_debug_level = RT_DBG_OFF;
++int wsc_debug_level = RT_DBG_INFO;
++
++int ioctl_sock = -1;
++unsigned char UUID[16]= {0};
++
++int enableDaemon = 0;
++	
++static int wscUPnPDevInit = FALSE;
++static int wscK2UMInit = FALSE;
++static int wscU2KMInit = FALSE;
++static int wscMsgQInit = FALSE;
++
++
++int WscUPnPOpMode;
++//peter : 0523
++//char HostDescURL[WSC_UPNP_DESC_URL_LEN] = {0};			// Used to save the DescriptionURL of local host.
++unsigned char HostMacAddr[MAC_ADDR_LEN]={0};			// Used to save the MAC address of local host.
++unsigned int HostIPAddr;								// Used to save the binded IP address of local host.
++char WSC_IOCTL_IF[IFNAMSIZ];
++unsigned short WPS_PORT;
++#if 1 //def MULTIPLE_CARD_SUPPORT
++#define FILE_PATH_LEN	256
++char pid_file_path[FILE_PATH_LEN];
++#endif // MULTIPLE_CARD_SUPPORT //
++
++void usage(void)
++{
++	printf("Usage: miniupnpd -G [-I infName] [-A ipaddress] [-n port] [-F descDoc] [-w webRootDir] -m UPnPOpMode -D [-l debugLevel] -h\n");
++	printf("\t-G:      Enable IGD Device service in miniupnpd\n");
++	printf("\t-I:	   Interface name this daemon will run wsc protocol(if not set, will use the default interface name - ra0)\n");
++	printf("\t\t\te.g.: ra0\n");
++	printf("\t-A:       IP address of the device (if not set, will auto assigned)\n");
++	printf("\t\t\t e.g.: 192.168.0.1\n");
++	printf("\t-n:       Port number for receiving UPnP messages (if not set, will auto assigned)\n");
++	printf("\t\t\t e.g.: 54312\n");
++	printf("\t-F:       Name of device description document (If not set, will used default value)\n");
++	printf("\t\t\t e.g.: WFADeviceDesc.xml\n");
++	printf("\t-w:       Filesystem path where descDoc and web files related to the device are stored\n");
++	printf("\t\t\t e.g.: /etc/xml/\n");
++	printf("\t-m:       UPnP system operation mode\n");
++	printf("\t\t\t 1: Enable UPnP Device service(Support Enrolle or Proxy functions)\n");
++	printf("\t\t\t 2: Enable UPnP Control Point service(Support Registratr function)\n");
++	printf("\t\t\t 3: Enable both UPnP device service and Control Point services.\n");
++	printf("\t-D:       Run program in daemon mode.\n");
++	printf("\t-l:       Debug level of WPS module.\n");
++	printf("\t\t\t 0: debug printing off\n");
++	printf("\t\t\t 1: DEBUG_ERROR\n");
++	printf("\t\t\t 2: DEBUG_PKT\n");
++	printf("\t\t\t 3: DEBUG_INFO\n");
++	
++	exit(1);
++
++}
++
++
++void sig_handler(int sigNum)
++{
++	sig_atomic_t status;
++
++	DBGPRINTF(RT_DBG_INFO, "Get a signal=%d!\n", sigNum);
++	switch(sigNum)
++	{
++		case SIGCHLD:
++			wait3(&status, WNOHANG, NULL);
++			break;
++		default:
++			break;
++	}
++
++}
++
++int wscSystemInit(void)
++{
++	int retVal;
++	
++	struct sigaction sig;
++	memset(&sig, 0, sizeof(struct sigaction));
++	sig.sa_handler= &sig_handler;
++	sigaction(SIGCHLD, &sig, NULL);
++	
++	retVal = wscMsgSubSystemInit();
++	
++	return retVal;
++}
++
++
++int wscSystemStop(void)
++{
++	/* Stop the K2U and U2K msg subsystem */
++	if (wscU2KMInit && ioctl_sock >= 0) 
++	{
++		// Close the ioctl socket.
++		close(ioctl_sock);
++		ioctl_sock = -1;
++	}
++	
++	if (wscK2UMInit)
++	{
++
++	}
++
++	if(wscUPnPDevInit)
++	{
++		WscUPnPDevStop();
++	}
++/*
++	if(wscUPnPCPInit)
++		WscUPnPCPStop();
++*/
++#if 0	
++	if(wscUPnPSDKInit)
++		UpnpFinish();
++#endif
++
++	if( wscMsgQInit)
++	{
++		wscMsgSubSystemStop();
++	}
++	return 1;
++}
++
++/******************************************************************************
++ * WscDeviceCommandLoop
++ *
++ * Description: 
++ *       Function that receives commands from the user at the command prompt
++ *       during the lifetime of the device, and calls the appropriate
++ *       functions for those commands. Only one command, exit, is currently
++ *       defined.
++ *
++ * Parameters:
++ *    None
++ *
++ *****************************************************************************/
++void *
++WscDeviceCommandLoop( void *args )
++{
++    int stoploop = 0;
++    char cmdline[100];
++    char cmd[100];
++
++    while( !stoploop ) {
++        sprintf( cmdline, " " );
++        sprintf( cmd, " " );
++
++		printf( "\n>> " );
++
++        // Get a command line
++        fgets( cmdline, 100, stdin );
++
++        sscanf( cmdline, "%s", cmd );
++
++        if( strcasecmp( cmd, "exit" ) == 0 ) {
++			printf( "Shutting down...\n" );
++			wscSystemStop();
++        } else {
++			printf("\n   Unknown command: %s\n\n", cmd);
++			printf("   Valid Commands:\n" );
++			printf("     Exit\n\n" );
++        }
++
++    }
++
++    return NULL;
++}
++
++
++
++/******************************************************************************
++ * main of WPS module
++ *
++ * Description: 
++ *       Main entry point for WSC device application.
++ *       Initializes and registers with the sdk.
++ *       Initializes the state stables of the service.
++ *       Starts the command loop.
++ *
++ * Parameters:
++ *    int argc  - count of arguments
++ *    char ** argv -arguments. The application 
++ *                  accepts the following optional arguments:
++ *
++ *          -ip 	ipAddress
++ *          -port 	port
++ *		    -desc 	descDoc
++ *	        -webdir webRootDir"
++ *		    -help 
++ *          -i      ioctl binding interface.
++ *
++ *****************************************************************************/
++int WPSInit(int argc, char **argv)
++{
++	unsigned int portTemp = 0;
++	char *ipAddr = NULL, *descDoc = NULL, *webRootDir = NULL, *infName = NULL;
++//	unsigned short port = 0;
++	FILE *fp;
++	int retVal;
++	int opt;
++
++	if (argc < 2)
++		usage();
++
++	printf("\n@@@@@@@@@ WPSInit @@@@@@@@@\n");
++
++	/* default op mode is device */
++	WscUPnPOpMode = WSC_UPNP_OPMODE_DEV;
++	/* default op mode is device */
++	memset(&WSC_IOCTL_IF[0], 0, IFNAMSIZ);
++	strcpy(&WSC_IOCTL_IF[0], "ra0");
++	
++	/* first, parsing the input options */
++	while((opt = getopt(argc, argv, "A:I:n:F:w:m:l:DGdh"))!= -1)
++	{
++		switch (opt)
++		{
++			case 'A':
++				ipAddr = optarg;
++				break;
++			case 'n':
++				sscanf(optarg, "%u", &portTemp);
++				break;
++			case 'F':
++				descDoc = optarg;
++				break;
++			case 'I':
++				infName = optarg;
++				memset(&WSC_IOCTL_IF[0], 0, IFNAMSIZ);
++				if (strlen(infName))
++					strncpy(&WSC_IOCTL_IF[0], infName, IFNAMSIZ);
++				else
++					strcpy(&WSC_IOCTL_IF[0], "ra0");
++				break;
++			case 'w':
++				webRootDir = optarg;
++				break;
++			case 'm':
++				WscUPnPOpMode = strtol(optarg, NULL, 10);
++				if (WscUPnPOpMode < WSC_UPNP_OPMODE_DEV || WscUPnPOpMode > WSC_UPNP_OPMODE_BOTH)
++					usage();
++				break;
++			case 'D':
++				enableDaemon = 1;
++				break;
++			case 'l':
++				wsc_debug_level = strtol(optarg, NULL, 10);
++				break;
++			case 'G':
++				/* dummy option - In fact : be handled in miniupnpd */
++				break;
++			case 'd':
++				/* dummy option - In fact : be handled in miniupnpd */
++				break;	
++			case 'h':
++				usage();
++				break;
++        }
++    }
++
++	if ((WscUPnPOpMode < WSC_UPNP_OPMODE_DEV) || (WscUPnPOpMode > WSC_UPNP_OPMODE_BOTH))
++	{
++		fprintf(stderr, "Wrong UPnP Operation Mode: %d\n", WscUPnPOpMode);
++		usage();
++	}
++	if ((wsc_debug_level > RT_DBG_ALL)  || (wsc_debug_level < RT_DBG_OFF))
++	{
++		fprintf(stderr, "Wrong Debug Level: %d\n", wsc_debug_level);
++		usage();
++	}				
++
++	if (enableDaemon)
++	{
++		pid_t childPid;
++
++		childPid = fork();
++		if(childPid < 0)
++		{
++			fprintf(stderr, "Run in daemon mode failed --ErrMsg=%s!\n", strerror(errno));
++			exit(0);
++		} 
++		else if (childPid > 0)
++			exit(0);
++		else 
++		{
++			/* normal programming style to make a program work as a daemon */
++			close(0); /* close the stdin fd */
++			close(1); /* close the stdout fd */
++		}	
++	}
++
++	/* Write the pid file */
++#if 1 // def MULTIPLE_CARD_SUPPORT
++	memset(&pid_file_path[0], 0, FILE_PATH_LEN);
++	sprintf(pid_file_path, "%s.%s", DEFAULT_PID_FILE_PATH, WSC_IOCTL_IF);
++	DBGPRINTF(RT_DBG_INFO, "The pid file is: %s!\n", pid_file_path);
++	if ((fp = fopen(pid_file_path, "w")) != NULL)
++#else
++	if((fp = fopen(DEFAULT_PID_FILE_PATH, "w"))!= NULL)
++#endif // MULTIPLE_CARD_SUPPORT //
++	{
++		fprintf(fp, "%d", getpid());
++		fclose(fp);
++	}
++	
++	/* System paramters initialization */
++	if (wscSystemInit() == WSC_SYS_ERROR)
++	{
++		fprintf(stderr, "wsc MsgQ System Initialization failed!\n");
++		goto STOP;
++	}
++	wscMsgQInit = TRUE;
++	
++	/* Initialize the netlink interface from kernel space */
++	if(wscK2UModuleInit() != WSC_SYS_SUCCESS)
++	{	
++		fprintf(stderr, "creat netlink socket failed!\n");
++		goto STOP;
++	}
++	else 
++	{
++		DBGPRINTF(RT_DBG_INFO, "Create netlink socket success!\n");
++		wscK2UMInit = TRUE;
++	}
++	
++	/* Initialize the ioctl interface for data path to kernel space */
++	ioctl_sock = wscU2KModuleInit();
++	if(ioctl_sock == -1)
++	{
++		fprintf(stderr, "creat ioctl socket failed!err=%d!\n", errno);
++		goto STOP;
++	}
++	else
++	{
++		DBGPRINTF(RT_DBG_INFO, "Create ioctl socket(%d) success!\n", ioctl_sock);
++		wscU2KMInit = TRUE;
++	}
++
++	/* Initialize the upnp related data structure and start upnp service */
++	if(WscUPnPOpMode)
++	{
++		struct ifreq  ifr;
++#if 0			
++		// Initializing UPnP SDK
++		if ((retVal = UpnpInit(ipAddr, port)) != 0)
++		{
++			DBGPRINTF(RT_DBG_ERROR, "Error with UpnpInit -- %d\n", retVal);
++			UpnpFinish();
++			goto STOP;
++		}
++		wscUPnPSDKInit = TRUE;
++#endif
++		// Get the IP/Port the UPnP services want to bind.
++
++		if (ipAddr == NULL)
++		{
++//			ipAddr = UpnpGetServerIpAddress();
++//			ipAddr = "192.168.15.43";
++#if 1
++#if 1 //Porting for miniupnpd 1.6
++			struct lan_addr_s * tmp_addr;
++			tmp_addr = lan_addrs.lh_first;
++			if (tmp_addr!=NULL)
++			{
++				ipAddr =tmp_addr->str;
++			}
++#else
++			ipAddr = lan_addr[0].str;
++#endif
++#else
++			if ((lan_addr[n_lan_addr-1].str != NULL) && (GETFLAG(ENABLEWPSMASK)))
++				ipAddr = lan_addr[n_lan_addr-1].str;
++#endif
++		}
++		ASSERT(ipAddr != NULL);
++		inet_aton(ipAddr, (struct in_addr *)&HostIPAddr);
++		
++		if (portTemp != 0)
++		{
++		    WPS_PORT = (unsigned short)portTemp;
++		}
++		else
++		{
++			/* set default port number for WPS service */
++			WPS_PORT = (unsigned short)DEFAULT_WPS_PORT;
++		}
++
++		ASSERT(WPS_PORT > 0);
++
++		// Get the Mac Address of wireless interface
++		memset(&ifr, 0, sizeof(struct ifreq));
++		strcpy(ifr.ifr_name, WSC_IOCTL_IF); 
++		if (ioctl(ioctl_sock, SIOCGIFHWADDR, &ifr) > 0) 
++        { 
++			perror("ioctl to get Mac Address");
++			goto STOP;
++		}
++		memcpy(HostMacAddr, ifr.ifr_hwaddr.sa_data, MAC_ADDR_LEN);
++
++		DBGPRINTF(RT_DBG_INFO, "\t HW-Addr: "MACSTR"!\n", MAC2STR(HostMacAddr));
++
++		// Start UPnP Device Service.
++		if (WscUPnPOpMode & WSC_UPNP_OPMODE_DEV)
++		{	  
++		    retVal = WscUPnPDevStart(ipAddr, WPS_PORT, descDoc, webRootDir);
++			if (retVal != WSC_SYS_SUCCESS)
++				goto STOP;
++			wscUPnPDevInit = TRUE;
++		}
++#if 0 /* apply for control point only */
++		// Start UPnP Control Point Service.
++		if(WscUPnPOpMode & WSC_UPNP_OPMODE_CP)
++		{
++			retVal = WscUPnPCPStart(ipAddr, port);
++			if (retVal != WSC_SYS_SUCCESS)
++				goto STOP;
++			wscUPnPCPInit = TRUE;
++		}
++#endif
++	}
++
++#if 0 /* handled in main() of miniupnpd */
++    /* Catch Ctrl-C and properly shutdown */
++    sigemptyset(&sigs_to_catch);
++    sigaddset(&sigs_to_catch, SIGINT);
++    sigwait(&sigs_to_catch, &sig);
++
++    DBGPRINTF(RT_DBG_INFO, "Shutting down on signal %d...\n", sig);
++#endif
++
++	return 1;	
++
++    DBGPRINTF(RT_DBG_INFO, "wscSystemStop()...\n");
++    wscSystemStop();
++STOP:
++		/* Trigger other thread to stop the procedures. */
++#if 1 //def MULTIPLE_CARD_SUPPORT
++	unlink(pid_file_path);
++#else
++	unlink(DEFAULT_PID_FILE_PATH);
++#endif // MULTIPLE_CARD_SUPPORT //
++	return 0;
++//    exit(0);
++}
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_msg.c
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_msg.c
+@@ -0,0 +1,569 @@
++/*
++	wsc_msg.c used to handle wsc msg system.
++*/
++#include <pthread.h>
++#include "wsc_msg.h"
++#include "wsc_upnp.h"
++#include "wsc_common.h"
++
++
++/* Used for Passive Queue system */
++#define WSCPASSIVEMSGQ_MAX_ENTRY	32
++
++static uint32 gPassiveMsgID=0;
++static WscU2KMsgQ gPassiveMsgQ[WSCPASSIVEMSGQ_MAX_ENTRY];
++
++/* Used for Active Queue system */
++#define WSCACTIVEMSGQ_MAX_ENTRY	32
++
++static pthread_mutex_t gActiveMsgQLock;
++static WscU2KMsgQ gActiveMsgQ[WSCACTIVEMSGQ_MAX_ENTRY];
++
++/* Used for Active Message Handler callback fucntion list */
++#define WSCACTIVEMSGHANDLE_LSIT_MAX_ENTRY    3
++
++static WscMsgHandle gActiveMsgHandleList[WSCACTIVEMSGHANDLE_LSIT_MAX_ENTRY]={
++	{WSC_OPCODE_UPNP_DATA, WscEventDataMsgRecv},
++	{WSC_OPCODE_UPNP_MGMT, WscEventMgmtMsgRecv},
++	{WSC_OPCODE_UPNP_CTRL, WscEventCtrlMsgRecv},
++};
++
++	
++int wscEnvelopeFree(IN WscEnvelope *envelope)
++{
++	if(envelope)
++	{
++		if(envelope->pMsgPtr)
++			free(envelope->pMsgPtr);
++		free(envelope);
++	}
++
++	return 0;
++}
++
++int wscEnvelopeRemove(
++	IN WscEnvelope *envelope,
++	OUT int qIdx)
++{
++	if(!envelope)
++		return WSC_SYS_ERROR;
++	
++	wscEnvelopeFree(envelope);
++	if((qIdx >= 0) && (qIdx < WSCPASSIVEMSGQ_MAX_ENTRY))
++	{
++		gPassiveMsgQ[qIdx].pEnvelope = NULL;
++		gPassiveMsgQ[qIdx].used = 0;
++	}
++	
++	return WSC_SYS_SUCCESS;;
++}
++
++
++/******************************************************************************
++ * wscEnvelopeCreate
++ *
++ * Description: 
++ *       Allocate the memory space for a new envelope and init it.
++ *
++ * Parameters:
++ *    void
++ 
++ * Return Value:
++ *    The pointer of cretaed envelope.
++ *    	NULL = failure.
++ *    	others = True. 
++ *****************************************************************************/
++WscEnvelope *wscEnvelopeCreate(void)
++{
++	WscEnvelope *envelope = NULL;
++	
++	if((envelope = malloc(sizeof(WscEnvelope))) == NULL)
++	{
++		DBGPRINTF(RT_DBG_ERROR, "Allocate memory to create a new envelope failed!\n");
++		return NULL;
++	}
++	
++	memset(envelope, 0 ,sizeof(WscEnvelope));
++
++	envelope->h = NULL;
++	envelope->DevCallBack = NULL;
++	envelope->callBack = NULL;
++	envelope->timerCount = DEF_WSC_ENVELOPE_TIME_OUT;
++	return envelope;
++}
++
++
++/******************************************************************************
++ * wscEnvelopeCreate
++ *
++ * Description: 
++ *       Insert a envelope to the message Queue(gPassiveMsgQ) and assign a 
++ *       eventID to this envelope.
++ *
++ * Parameters:
++ *    WscEnvelope *envelope - The envelope want to insert.
++ *    int *pQIdx            - The msg Q index of the envelope inserted in.
++ *  
++ * Return Value:
++ *    Indicate if the envelope insetion success or failure.
++ *    	WSC_SYS_SUCCESS = failure.
++ *    	WSC_SYS_ERROR   = True. 
++ *****************************************************************************/
++int wscMsgQInsert(
++	IN WscEnvelope *envelope,
++	OUT int *pQIdx)
++{
++	int idx;
++
++	if(!envelope)
++		return WSC_SYS_ERROR;
++	
++	for(idx = 0; idx < WSCPASSIVEMSGQ_MAX_ENTRY; idx++)
++	{
++		if(gPassiveMsgQ[idx].used == 0)
++		{
++			envelope->envID = ((++gPassiveMsgID) == 0 ? (++gPassiveMsgID) : gPassiveMsgID); //ID 0 is reserved for msg directly send by kernel.
++			gPassiveMsgQ[idx].pEnvelope = envelope;
++			gPassiveMsgQ[idx].used = 1;
++			
++			break;
++		}
++	}
++	
++	if(idx < WSCPASSIVEMSGQ_MAX_ENTRY)
++	{
++		*pQIdx = idx;
++		DBGPRINTF(RT_DBG_INFO, "Insert envelope to msgQ success, msgQIdx = %d!envID=0x%x!\n", idx, envelope->envID);
++		return WSC_SYS_SUCCESS;
++	}
++	
++	return WSC_SYS_ERROR;
++}
++
++
++/******************************************************************************
++ * wscMsgQRemove
++ *
++ * Description: 
++ *    	Remove the envelope in the message Queue. 
++ * Note: 
++ *  	This function just remove the envelope from the Q but not free it. You 
++ * 		should free it yourself. 
++ *
++ * Parameters:
++ *    int qType - The Message Queue type want to handle.
++ *    int qIdx  - The msg Q index want to be removed.
++ *  
++ * Return Value:
++ *    Indicate if the envelope delete success or failure.
++ *    	WSC_SYS_SUCCESS = failure.
++ *    	WSC_SYS_ERROR   = True. 
++ *****************************************************************************/
++int wscMsgQRemove(
++	IN int qType, 
++	IN int qIdx)
++{
++	// The ActiveQ and PassiveQ have the same maximum capacity of the envelope.
++	if (qIdx < 0 || qIdx >= WSCPASSIVEMSGQ_MAX_ENTRY)
++		return WSC_SYS_ERROR;
++
++	if(qType == Q_TYPE_ACTIVE)
++	{	// Handle the Active Q.
++		if(pthread_mutex_lock(&gActiveMsgQLock) == 0)
++		{
++			wscEnvelopeFree(gActiveMsgQ[qIdx].pEnvelope);
++		gActiveMsgQ[qIdx].pEnvelope = NULL;
++		gActiveMsgQ[qIdx].used = 0;
++			pthread_mutex_unlock(&gActiveMsgQLock);
++	} 
++	} 
++	else if(qType ==Q_TYPE_PASSIVE)
++	{	// Handle the Passive Q.
++		wscEnvelopeFree(gPassiveMsgQ[qIdx].pEnvelope);
++		gPassiveMsgQ[qIdx].pEnvelope = NULL;
++		gPassiveMsgQ[qIdx].used = 0;
++	}
++	else
++	{
++		DBGPRINTF(RT_DBG_ERROR, "%s():Wrong MsgQ Type -- type=%d!\n", __FUNCTION__, qType);
++	}
++	
++	return WSC_SYS_ERROR;
++	
++}
++
++int registerActiveMsgTypeHandle(
++	IN int MsgType, 
++	IN msgHandleCallback handle)
++{
++
++	return -1;
++}
++
++int wscActiveMsgHandler(IN WscEnvelope* pEnvelope)
++{
++	int i;
++	RTMP_WSC_MSG_HDR *pHdr = NULL;
++	
++	pHdr = (RTMP_WSC_MSG_HDR *)pEnvelope->pMsgPtr;
++
++	DBGPRINTF(RT_DBG_INFO, "%s(): the ActiveMsgType=%d, SubType=%d!\n", __FUNCTION__, pHdr->msgType, pHdr->msgSubType);
++	for(i=0; i< WSCACTIVEMSGHANDLE_LSIT_MAX_ENTRY; i++)
++	{
++		if((gActiveMsgHandleList[i].msgType == pHdr->msgType) && (gActiveMsgHandleList[i].handle != NULL))
++		{
++			DBGPRINTF(RT_DBG_INFO, "find ActiveMsgHandler!\n");
++			return (gActiveMsgHandleList[i].handle)((char *)pEnvelope->pMsgPtr, pEnvelope->msgLen);
++		}
++	}
++
++	return 0;
++}
++
++
++int wscMsgStateUpdate(char *pBuf, int len)
++{
++
++	/*
++		TODO:  If we want to maintain our UPnP engine status. We need to add the code here. 
++	*/
++#if 0
++	RTMP_WSC_MSG_HDR *pHdr;
++	
++	pHdr = (RTMP_WSC_MSG_HDR *)pBuf;
++
++	if(pHdr == NULL)
++		return 0;
++
++	if(pHdr->msgType != WSC_OPCODE_UPNP_DATA)
++		return 0;
++#endif
++	return 0;
++	
++}
++
++
++/*
++	NETLINK tunnel msg format send to WSCUPnP handler in user space:
++	1. Signature of following string(Not include the quote, 8 bytes)
++			"RAWSCMSG"
++	2. eID: eventID (4 bytes)
++			the ID of this message(4 bytes)
++	3. aID: ackID (4 bytes)
++			means that which event ID this mesage was response to.
++	4. TL:  Message Total Length (4 bytes) 
++			Total length of this message.
++	5. F:   Flag (2 bytes)
++			used to notify some specific character of this msg segment.
++				Bit 1: fragment
++					set as 1 if netlink layer have more segment of this Msg need to send.
++				Bit 2~15: reserve, should set as 0 now.
++	5. SL:  Segment Length(2 bytes)
++			msg actual length in this segment, The SL may not equal the "TL" field if "F" ==1
++	6. devMac: device mac address(6 bytes)
++			Indicate the netdevice which this msg belong. For the wscd in user space will 
++			depends this address dispatch the msg to correct UPnP Device instance to handle it.
++	7. "WSC_MSG" info:
++
++                 8                 4       4       4      2    2        6      variable length(MAXIMA=232)
++	+------------+----+----+----+--+--+------+------------------------+
++	|  Signature       |eID  |aID  | TL   | F | SL|devMac| WSC_MSG                          |
++
++*/
++int WscRTMPMsgHandler(char *pBuf, int len)
++{
++	char *pos, *pBufPtr;
++	int dataLen = 0, qIdx, workQIdx = -1;
++	RTMP_WSC_NLMSG_HDR *pSegHdr;
++	WscEnvelope *pEnvPtr = NULL;
++	int qType;
++	
++	pSegHdr = (RTMP_WSC_NLMSG_HDR *)pBuf;
++	
++	
++#if 1 // def MULTIPLE_CARD_SUPPORT
++	if (memcmp(&pSegHdr->devAddr[0],  &HostMacAddr[0], MAC_ADDR_LEN) != 0)
++	{
++		DBGPRINTF(RT_DBG_INFO, "This msg are not the device we served("MACSTR")!!\n", 
++								getpid(), MAC2STR(HostMacAddr));
++		return 0;
++	}
++#endif // MULTIPLE_CARD_SUPPORT //
++
++	DBGPRINTF(RT_DBG_INFO, "pSegHdr->envID=0x%08x, ackID=0x%08x, devAddr="MACSTR"\n", 
++							pSegHdr->envID, pSegHdr->ackID, MAC2STR(pSegHdr->devAddr));
++	
++	if(pSegHdr->ackID == 0)
++	{
++		int emptyIdx = -1;
++		
++		/* The message should insert into the ActiveMsgQ */
++		pthread_mutex_lock(&gActiveMsgQLock);
++		for(qIdx = 0; qIdx < WSCACTIVEMSGQ_MAX_ENTRY; qIdx++)
++		{	// Search for mailBox to check if we have a matched eventID.
++			if((gActiveMsgQ[qIdx].used == 1) && ((pEnvPtr = gActiveMsgQ[qIdx].pEnvelope) != NULL))
++			{
++				if(pEnvPtr->envID == pSegHdr->envID)
++				{
++					workQIdx = qIdx;
++					pEnvPtr->timerCount = DEF_WSC_ENVELOPE_TIME_OUT;
++					break;
++				}
++			}
++			else if(emptyIdx < 0 && gActiveMsgQ[qIdx].used == 0){
++				emptyIdx = qIdx; //record the first un-used qIdx.
++			}
++		}
++		
++		if((qIdx == WSCACTIVEMSGQ_MAX_ENTRY) && (emptyIdx >= 0))
++		{
++			pEnvPtr = wscEnvelopeCreate();
++			if(pEnvPtr != NULL)
++			{	
++				wscEnvelopeFree(gActiveMsgQ[emptyIdx].pEnvelope);
++				pEnvPtr->envID = pSegHdr->envID;
++				gActiveMsgQ[emptyIdx].used = 1;
++				gActiveMsgQ[emptyIdx].pEnvelope = pEnvPtr;
++				workQIdx = emptyIdx;
++			}
++		} 
++		pthread_mutex_unlock(&gActiveMsgQLock);
++		
++		if(pEnvPtr == NULL)
++			return -1;
++		
++		qType = Q_TYPE_ACTIVE;
++
++		//For debug
++		if (pEnvPtr->pMsgPtr == NULL) {
++			DBGPRINTF(RT_DBG_INFO, "Receive a new wireless event(WscActiveMsg):\n"
++									"\tMsgHdr->msgLen=%d\n"
++									"\tMsgHdr->envID=0x%08x\n"
++									"\tMsgHdr->ackID=0x%08x\n"
++									"\tMsgHdr->flags=0x%04x\n"
++									"\tMsgHdr->segLen=%d\n", 
++									pSegHdr->msgLen, pSegHdr->envID, pSegHdr->ackID, 
++									pSegHdr->flags, pSegHdr->segLen);
++		}
++	}
++	else
++	{
++		/* The message should insert into the PassiveMsgQ */
++		for(qIdx = 0; qIdx < WSCPASSIVEMSGQ_MAX_ENTRY; qIdx++)
++		{	// Search for mailBox to check if we have a matched ackID.
++			if(gPassiveMsgQ[qIdx].used == 1 && ((pEnvPtr = gPassiveMsgQ[qIdx].pEnvelope) != NULL))
++			{
++				if(pEnvPtr->envID == pSegHdr->ackID)
++				{
++					pEnvPtr->timerCount = DEF_WSC_ENVELOPE_TIME_OUT;
++					break;
++				}
++			}
++		}
++		
++		if(qIdx == WSCPASSIVEMSGQ_MAX_ENTRY)	//Queue is full, drop it directly?
++			return -1;
++
++		qType = Q_TYPE_PASSIVE;
++
++		//For debug
++		if (pEnvPtr->pMsgPtr == NULL) {
++			DBGPRINTF(RT_DBG_INFO, "Receive a new wireless event(WscPassiveMsg):\n"
++									"\tMsgHdr->msgLen=%d\n"
++									"\tMsgHdr->envID=0x%x\n"
++									"\tMsgHdr->ackID=0x%x\n"
++									"\tMsgHdr->flags=0x%x\n"
++									"\tMsgHdr->segLen=%d\n", 
++									pSegHdr->msgLen,  pSegHdr->envID, pSegHdr->ackID, 
++									pSegHdr->flags, pSegHdr->segLen);
++		}
++	}
++
++	//Now handle the wsc_msg payload.
++	pos = ((char *)pSegHdr + sizeof(RTMP_WSC_NLMSG_HDR));
++	dataLen = pSegHdr->segLen;
++	if (pos)
++	{
++		/* TODO: Need to handle it to Upnp Module */
++		//wsc_hexdump("WSCENROLMSG", pos, dataLen);
++		if (pEnvPtr->pMsgPtr == NULL)
++		{	
++			if ((pEnvPtr->pMsgPtr = malloc(pSegHdr->msgLen)) != NULL)
++			{
++				pEnvPtr->msgLen = pSegHdr->msgLen;
++				pEnvPtr->actLen = 0;
++			} else {
++				DBGPRINTF(RT_DBG_ERROR, "%s():allocate memory for pEnvPtr->pMsgPtr failed!\n", __FUNCTION__);
++				pEnvPtr->flag = WSC_ENVELOPE_MEM_FAILED;
++			}
++		} 
++
++		if((pEnvPtr->flag & WSC_ENVELOPE_MEM_FAILED) != WSC_ENVELOPE_MEM_FAILED)
++		{
++			pBufPtr = &((char *)pEnvPtr->pMsgPtr)[pEnvPtr->actLen];
++			memcpy(pBufPtr, pos, dataLen);
++			pEnvPtr->actLen += dataLen;
++
++			if (pSegHdr->flags == 0)
++				pEnvPtr->flag = WSC_ENVELOPE_SUCCESS;
++		}
++	}
++
++	// Trigger the event handler to process the received msgs.
++	if(pEnvPtr->flag != WSC_ENVELOPE_NONE)
++	{
++		// Check and update the WSC status depends on the messages.
++		if(pEnvPtr->flag == WSC_ENVELOPE_SUCCESS)
++			wscMsgStateUpdate(pEnvPtr->pMsgPtr, pEnvPtr->msgLen);
++
++		// Deliver the message to corresponding handler.
++		if(qType == Q_TYPE_PASSIVE)
++		{
++			gPassiveMsgQ[qIdx].used = 0;
++			gPassiveMsgQ[qIdx].pEnvelope = NULL;
++			
++			//wsc_hexdump("NLMsg", pEnvPtr->pMsgPtr, pEnvPtr->msgLen);
++			if(pEnvPtr->DevCallBack != NULL) 
++			{
++				pEnvPtr->DevCallBack(pEnvPtr);
++				/* We reuse the same envelope until the complete message has been received ? */
++ //				wscEnvelopeFree(pEnvPtr);
++			}
++			else if(pEnvPtr->callBack != NULL)
++			{
++				pEnvPtr->callBack(pEnvPtr->pMsgPtr, pEnvPtr->msgLen);
++				wscEnvelopeFree(pEnvPtr);
++			} 
++		}
++		else 
++		{
++			pthread_mutex_lock(&gActiveMsgQLock);
++			gActiveMsgQ[workQIdx].pEnvelope = NULL;
++			gActiveMsgQ[workQIdx].used = 0;
++			pthread_mutex_unlock(&gActiveMsgQLock);
++			
++			//Call handler
++			wscActiveMsgHandler(pEnvPtr);
++
++			//After handle this message, remove it from ActiveMsgQ.
++			wscEnvelopeFree(pEnvPtr);
++		}
++	}
++
++	return 0;	
++}
++
++
++/********************************************************************************
++ * WscMsgQVerifyTimeouts
++ *
++ * Description: 
++ *       Checks if the envelope in  MsgQ(active and passive) was expired. 
++ *		 If the envelope expires, this handle is removed from the list and trigger the 
++ *			corresponding handler handle it.
++ *
++ * Parameters:
++ *    incr -- The increment to subtract from the timeouts each time the
++ *            function is called.
++ *
++ ********************************************************************************/
++void WscMsgQVerifyTimeouts(int incr)
++{
++	int idx;
++	WscEnvelope *envelope = NULL;
++
++	//First check the passive queue!
++	for(idx = 0; idx < WSCPASSIVEMSGQ_MAX_ENTRY; idx++)
++	{
++		if(gPassiveMsgQ[idx].used == 1 && ((envelope = gPassiveMsgQ[idx].pEnvelope) != NULL))
++		{
++			envelope->timerCount -= incr;
++			if(envelope->timerCount <= 0)
++			{
++				DBGPRINTF(RT_DBG_INFO, "WscMsgQVerifyTimeouts(): PassiveQIdx(%d) timeout happened, eventID=0x%x!\n", 
++						idx, envelope->envID);
++				if((envelope->callBack != NULL) || (envelope->DevCallBack != NULL))
++				{
++					wscEnvelopeFree(envelope);
++					envelope = NULL;
++				}
++				else 
++				{
++					envelope->flag = WSC_ENVELOPE_TIME_OUT;
++				}
++				gPassiveMsgQ[idx].used = 0;
++				gPassiveMsgQ[idx].pEnvelope = NULL;
++			}
++		}
++	}
++
++
++	// Check the Active Queue.
++	pthread_mutex_lock(&gActiveMsgQLock);
++	for(idx = 0; idx < WSCACTIVEMSGQ_MAX_ENTRY; idx++)
++	{
++		if((gActiveMsgQ[idx].used == 1) && ((envelope = gActiveMsgQ[idx].pEnvelope) != NULL))
++		{
++			envelope->timerCount -= incr;
++			if(envelope->timerCount <= 0)
++			{
++				DBGPRINTF(RT_DBG_INFO, "WscMsgQVerifyTimeouts(): ActiveQIdx(%d) timeout happened!\n", idx);
++				wscEnvelopeFree(envelope);
++				envelope = NULL;
++				gActiveMsgQ[idx].used = 0;
++				gActiveMsgQ[idx].pEnvelope = NULL;
++			}
++		}
++	}
++	pthread_mutex_unlock(&gActiveMsgQLock);
++
++}
++
++static inline int WscMsgQRemoveAll(void)
++{
++	// Just set all queueed envelope as expired!
++	WscMsgQVerifyTimeouts(DEF_WSC_ENVELOPE_TIME_OUT);
++	return 0;
++}
++
++
++int wscMsgSubSystemStop()
++{
++	WscMsgQRemoveAll();
++	pthread_mutex_destroy(&gActiveMsgQLock);
++	return 0;	
++}
++
++
++int wscMsgSubSystemInit(void)
++{
++	time_t nowTime;
++
++
++	// Initialize the Passive message Queue.
++	if ((time(&nowTime)) != ((time_t)-1))
++	{
++		gPassiveMsgID = (uint32)nowTime;
++		memset(gPassiveMsgQ, 0, sizeof(WscU2KMsgQ)* WSCPASSIVEMSGQ_MAX_ENTRY);
++		DBGPRINTF(RT_DBG_INFO, "gPassiveMsgQ Init success! gPassiveMsgID=0x%x!\n", gPassiveMsgID);
++	}
++		
++	// Initialize the Active message Queue system.
++	if(pthread_mutex_init(&gActiveMsgQLock, NULL) != 0) 
++	{
++		goto FailedActiveQ;
++	} else {
++		pthread_mutex_lock(&gActiveMsgQLock);
++	memset(gActiveMsgQ, 0, sizeof(WscU2KMsgQ)* WSCACTIVEMSGQ_MAX_ENTRY);
++	DBGPRINTF(RT_DBG_INFO, "gActiveMsgQ Init success!\n");
++		pthread_mutex_unlock(&gActiveMsgQLock);
++	}
++
++	return WSC_SYS_SUCCESS;
++FailedActiveQ:
++	pthread_mutex_destroy(&gActiveMsgQLock);
++Failed:
++	return WSC_SYS_ERROR; 
++
++}
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_msg.h
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_msg.h
+@@ -0,0 +1,114 @@
++#ifndef __WSC_MSG_H__
++#define __WSC_MSG_H__
++
++#include "wsc_common.h"
++
++#ifndef IN
++#define IN
++#endif
++
++#ifndef OUT
++#define OUT
++#endif
++
++#ifndef INOUT
++#define INOUT
++#endif
++
++#define WSC_OPCODE_UPNP_MASK	0x10
++#define WSC_OPCODE_UPNP_DATA	0x11
++#define WSC_OPCODE_UPNP_MGMT	0x12
++#define WSC_OPCODE_UPNP_CTRL	0x13
++
++#define WSC_UPNP_MGMT_SUB_PROBE_REQ		0x01
++#define WSC_UPNP_MGMT_SUB_CONFIG_REQ	0x02
++#define WSC_UPNP_MGMT_SUB_REG_SELECT	0x03
++
++//patch for Atheros External registrar
++#define WSC_UPNP_DATA_SUB_INCLUDE_MAC	0x0100
++
++#define WSC_UPNP_DATA_SUB_NORMAL		0x00
++#define WSC_UPNP_DATA_SUB_TO_ALL		0x01
++#define WSC_UPNP_DATA_SUB_TO_ONE		0x02
++#define WSC_UPNP_DATA_SUB_ACK			0x03
++#define WSC_UPNP_DATA_SUB_M1			0x04
++#define WSC_UPNP_DATA_SUB_M2			0x05
++#define WSC_UPNP_DATA_SUB_M2D			0x06
++#define WSC_UPNP_DATA_SUB_M3			0x07
++#define WSC_UPNP_DATA_SUB_M4			0x08
++#define WSC_UPNP_DATA_SUB_M5			0x09
++#define WSC_UPNP_DATA_SUB_M6			0x0A
++#define WSC_UPNP_DATA_SUB_M7			0x0B
++#define WSC_UPNP_DATA_SUB_M8			0x0C
++#define WSC_UPNP_DATA_SUB_WSC_ACK		0x0D
++#define WSC_UPNP_DATA_SUB_WSC_NACK		0x0E
++#define WSC_UPNP_DATA_SUB_WSC_DONE		0x0F
++#define WSC_UPNP_DATA_SUB_WSC_UNKNOWN	0xff
++
++#define WSC_ENVELOPE_NONE			0x0
++#define WSC_ENVELOPE_SUCCESS		0x1
++#define WSC_ENVELOPE_MEM_FAILED		0x2
++#define WSC_ENVELOPE_TIME_OUT		0x3
++/*
++	This data structrue used for communication between UPnP threads and netlink thread.
++	The UPnP thread create a 
++*/
++#define Q_TYPE_ACTIVE	1
++#define Q_TYPE_PASSIVE	2
++
++#define DEF_WSC_ENVELOPE_TIME_OUT	30
++typedef int (*envCallBack)(char *msg, int msgLen);
++
++/* for compile issue */
++struct _WscEnvelope;
++
++typedef int (*httpCallBack)(struct _WscEnvelope *pEnvelope);
++
++typedef struct _WscEnvelope{
++	uint32		envID;			//envID = 0 was reserved for msg directly send from kernel space. other value means send by upnp daemon.
++	void 		*pMsgPtr;
++	int 		msgLen;
++	int 		actLen;
++	int 		flag;
++	int			timerCount;
++	struct upnphttp * h;
++	httpCallBack DevCallBack;
++	envCallBack callBack;		//Used for UPnP Control Point.
++}WscEnvelope;
++
++typedef struct _WscU2KMsgQ{
++	WscEnvelope *pEnvelope;
++	int used;
++}WscU2KMsgQ;
++
++typedef int (*msgHandleCallback)(char *pMsgBuf, int msgLen);
++typedef struct wscMsgHandle{
++	uint32 msgType;
++	msgHandleCallback handle;
++}WscMsgHandle;
++
++int wscEnvelopeFree(IN WscEnvelope *envelope);
++
++WscEnvelope *wscEnvelopeCreate(void);
++
++int wscEnvelopeRemove(
++	IN WscEnvelope *envelope,
++	OUT int qIdx);
++
++int wscMsgQInsert(
++	IN WscEnvelope *envelope,
++	OUT int *pQIdx);
++
++int wscMsgQRemove(
++	IN int qType, 
++	IN int qIdx);
++
++int WscRTMPMsgHandler(
++	IN char *pBuf,
++	IN int len);
++
++int wscMsgSubSystemStop(void);
++
++int wscMsgSubSystemInit(void);
++
++#endif //endif of "#ifndef __WSC_MSG_H__"
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_netlink.c
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_netlink.c
+@@ -0,0 +1,229 @@
++/*
++	function handler for linux netlink socket!
++ */
++#include <unistd.h>
++#include <fcntl.h>
++#include <asm/types.h>
++#include <sys/socket.h>
++#include <linux/netlink.h>
++#include <linux/rtnetlink.h>
++#include "wsc_common.h"
++#include "wsc_netlink.h"
++#include "wsc_msg.h"
++
++int we_version_compiled = WIRELESS_EXT;
++/*static*/ int netlink_sock = -1;
++
++static void wscEventHandler(char *data, int len)
++{
++	struct iw_event iwe_buf, *iwe = &iwe_buf;
++	char *pos, *end, *custom;
++//	char *buf;
++
++	pos = data;
++	end = data + len;
++
++	//wsc_hexdump("wscEventHandler", pos, len);
++
++	while (pos + IW_EV_LCP_LEN <= end)
++	{
++		/* Event data may be unaligned, so make a local, aligned copy
++		 * before processing. */
++		memcpy(&iwe_buf, pos, IW_EV_LCP_LEN);
++		//DBGPRINTF(RT_DBG_INFO, "Wireless event: cmd=0x%x len=%d, we_version_compiled=%d!\n", iwe->cmd, iwe->len, we_version_compiled);
++		if (iwe->len <= IW_EV_LCP_LEN)
++			return;
++
++		custom = pos + IW_EV_POINT_LEN;
++		if(iwe->cmd == IWEVCUSTOM)
++		{
++			if (we_version_compiled > 18)
++			{			
++				/* WE-19 removed the pointer from struct iw_point */
++				char *dpos = (char *) &iwe_buf.u.data.length;
++				int dlen = dpos - (char *) &iwe_buf;
++				memcpy(dpos, pos + IW_EV_LCP_LEN, sizeof(struct iw_event) - dlen);
++			}
++			else
++			{
++				memcpy(&iwe_buf, pos, sizeof(struct iw_event));
++			}	
++			//wsc_hexdump("After Stripped", custom, len - IW_EV_POINT_LEN);
++
++			if (custom + iwe->u.data.length > end){
++				DBGPRINTF(RT_DBG_ERROR, "custom(0x%x) + iwe->u.data.length(0x%x >end!\n", custom, iwe->u.data.length);
++				return;
++			}
++#if 0
++			buf = malloc(iwe->u.data.length + 1);
++			if (buf == NULL)
++				return;
++				
++			memcpy(buf, custom, iwe->u.data.length);
++			buf[iwe->u.data.length] = '\0';
++			DBGPRINTF(RT_DBG_INFO, "iwe->u.data.flags=0x%x!\n", iwe->u.data.flags);
++#endif
++			switch(iwe->u.data.flags)
++			{
++				case RT_ASSOC_EVENT_FLAG:
++				case RT_DISASSOC_EVENT_FLAG:
++				case RT_REQIE_EVENT_FLAG:
++				case RT_RESPIE_EVENT_FLAG:
++				case RT_ASSOCINFO_EVENT_FLAG:
++				case RT_PMKIDCAND_FLAG:
++					break;
++				default:
++					if(strncmp(custom, "RAWSCMSG", 8) == 0)
++					{	
++						DBGPRINTF(RT_DBG_LOUD, "Recevive a RAWSCMSG segment\n");
++						WscRTMPMsgHandler(custom, iwe->u.data.length);
++					}
++					break;
++			}
++//			free(buf);
++		}
++		pos += iwe->len;
++	}
++	
++}
++
++
++static void wscNLEventRTMNewlinkHandle(struct nlmsghdr *nlmsgHdr, int len)
++{
++	struct ifinfomsg *ifi;
++	int attrlen, nlmsg_len, rta_len;
++	struct rtattr * attr;
++
++	DBGPRINTF(RT_DBG_LOUD, "%s", __FUNCTION__);
++
++	if (len < sizeof(struct ifinfomsg))
++		return;
++
++	ifi = NLMSG_DATA(nlmsgHdr);
++    //wsc_hexdump("ifi: ", (char *)ifi, sizeof(struct ifinfomsg));
++	
++	nlmsg_len = NLMSG_ALIGN(sizeof(struct ifinfomsg));
++       
++	attrlen = nlmsgHdr->nlmsg_len - nlmsg_len;
++	DBGPRINTF(RT_DBG_LOUD, "attrlen=%d\n",attrlen);
++	if (attrlen < 0)
++		return;
++
++	attr = (struct rtattr *) (((char *) ifi) + nlmsg_len);
++    //wsc_hexdump("rtattr: ", (char *)attr,sizeof(struct rtattr));
++	rta_len = RTA_ALIGN(sizeof(struct rtattr));
++	//wsc_hexdump("rtattr: ", (char *)attr, rta_len);
++	while (RTA_OK(attr, attrlen))
++	{
++		if (attr->rta_type == IFLA_WIRELESS)
++		{
++			wscEventHandler(((char *) attr) + rta_len, attr->rta_len - rta_len);
++		} 
++		attr = RTA_NEXT(attr, attrlen);
++		//wsc_hexdump("rta_type: ", (char *)attr,sizeof(struct rtattr));
++	}
++}
++
++void wscNLSockRecv(int sock)
++{
++	char buf[2000];// 8192 ==> 2000
++	int left;
++	struct sockaddr_nl from;
++	socklen_t fromlen;
++	struct nlmsghdr *nlmsgHdr;
++
++	fromlen = sizeof(from);
++	left = recvfrom(sock, buf, sizeof(buf), MSG_DONTWAIT, (struct sockaddr *)&from, &fromlen);
++
++	if (left < 0)
++	{
++		if (errno != EINTR && errno != EAGAIN)
++			perror("recvfrom(netlink)");
++		return;
++	}
++
++	nlmsgHdr = (struct nlmsghdr *)buf;
++	//wsc_hexdump("nlmsgHdr: ", (char *)nlmsgHdr, nlmsgHdr->nlmsg_len);
++
++	while (left >= sizeof(*nlmsgHdr))
++	{
++		int len, plen;
++
++		len = nlmsgHdr->nlmsg_len;
++		plen = len - sizeof(*nlmsgHdr);
++		if (len > left || plen < 0)
++		{
++			DBGPRINTF(RT_DBG_LOUD, "Malformed netlink message: len=%d left=%d plen=%d", len, left, plen);
++			break;
++		}
++
++		switch (nlmsgHdr->nlmsg_type)
++		{
++			case RTM_NEWLINK:
++				wscNLEventRTMNewlinkHandle(nlmsgHdr, plen);
++				break;
++		}
++
++		len = NLMSG_ALIGN(len);
++		left -= len;
++		nlmsgHdr = (struct nlmsghdr *) ((char *) nlmsgHdr + len);
++	}
++
++	if (left > 0)
++	{
++		DBGPRINTF(RT_DBG_INFO, "%d extra bytes in the end of netlink message", left);
++	}
++
++}
++
++
++/******************************************************************************
++ * wscK2UModuleInit
++ *
++ * Description: 
++ *       The Kernel space 2 user space msg subsystem entry point.
++ *	  In Linux system, we use netlink socket to receive the specific type msg
++ *	  send from wireless driver.
++ *		 This function mainly create a posix thread and recvive msg then dispatch
++ *	  to coressponding handler.
++ *
++ * Parameters:
++ *    None
++ * 
++ * Return:
++ *    success: 1
++ *    fail   : 0
++ *****************************************************************************/
++int wscK2UModuleInit(void)
++{
++	int sock = -1;
++    struct sockaddr_nl local;
++	
++	//Create netlink socket
++	sock = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
++	if (sock < 0)
++	{
++		perror("socket(PF_NETLINK,SOCK_RAW,NETLINK_ROUTE)");
++		return WSC_SYS_ERROR;
++	}
++
++	memset(&local, 0, sizeof(local));
++	local.nl_family = AF_NETLINK;
++	local.nl_groups = RTMGRP_LINK;
++
++	if (bind(sock, (struct sockaddr *)&local, sizeof(local)) < 0)
++	{
++		perror("bind(netlink)");
++		close(sock);
++		return WSC_SYS_ERROR;
++	}
++
++    /* 
++    	start a netlink socket receiver handle thread  
++    */
++    DBGPRINTF(RT_DBG_INFO, "sock=%d!(0x%p)\n", sock, &sock);
++	netlink_sock = sock;
++	
++	return WSC_SYS_SUCCESS;
++}
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_netlink.h
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_netlink.h
+@@ -0,0 +1,94 @@
++/*
++	header file for wsc_netlink.c
++*/
++
++#ifndef __WSC_NETLINK_H__
++#define __WSC_NETLINK_H__
++
++#include <linux/types.h>
++#include <linux/if.h>
++#include <linux/wireless.h>
++
++#define NETLINK_ROUTE 0
++#define RTMGRP_LINK 1
++#ifndef RTM_BASE
++#define RTM_BASE 0x10
++#endif
++
++//extern int netlink_sock;
++
++#if 0	//already defined in <linux/rtnetlink.h>
++#define RTM_NEWLINK (RTM_BASE + 0)
++#define RTM_DELLINK (RTM_BASE + 1)
++
++#define RTA_ALIGNTO 4
++#define RTA_ALIGN(len) (((len) + RTA_ALIGNTO - 1) & ~(RTA_ALIGNTO - 1))
++#define RTA_NEXT(rta,attrlen) \
++	((attrlen) -= RTA_ALIGN((rta)->rta_len), \
++	(struct rtattr *) (((char *)(rta)) + RTA_ALIGN((rta)->rta_len)))
++
++#define NLMSG_ALIGNTO 4
++#define NLMSG_ALIGN(len) (((len) + NLMSG_ALIGNTO - 1) & ~(NLMSG_ALIGNTO - 1))
++#define NLMSG_LENGTH(len) ((len) + NLMSG_ALIGN(sizeof(struct nlmsghdr)))
++#define NLMSG_DATA(nlh) ((void*) (((char*) nlh) + NLMSG_LENGTH(0)))
++#endif
++
++#ifndef RTA_OK
++#define RTA_OK(rta,len) \
++	((len) > 0 && (rta)->rta_len >= sizeof(struct rtattr) && \
++	(rta)->rta_len <= (len))
++#endif
++
++#if (WIRELESS_EXT < 15)
++/* ----------------------- WIRELESS EVENTS ----------------------- */
++/*
++ * Wireless events are carried through the rtnetlink socket to user
++ * space. They are encapsulated in the IFLA_WIRELESS field of
++ * a RTM_NEWLINK message.
++ */
++
++/*
++ * A Wireless Event. Contains basically the same data as the ioctl...
++ */
++struct iw_event
++{
++	unsigned short		len;            /* Real lenght of this stuff */
++    unsigned short		cmd;            /* Wireless IOCTL */
++	union iwreq_data	u;              /* IOCTL fixed payload */
++};
++
++/* Size of the Event prefix (including padding and alignement junk) */
++#define IW_EV_LCP_LEN   (sizeof(struct iw_event) - sizeof(union iwreq_data))
++
++/* Size of the various events */
++#define IW_EV_CHAR_LEN  (IW_EV_LCP_LEN + IFNAMSIZ)
++#define IW_EV_UINT_LEN  (IW_EV_LCP_LEN + sizeof(__u32))
++#define IW_EV_FREQ_LEN  (IW_EV_LCP_LEN + sizeof(struct iw_freq))
++#define IW_EV_POINT_LEN (IW_EV_LCP_LEN + sizeof(struct iw_point))
++#define IW_EV_PARAM_LEN (IW_EV_LCP_LEN + sizeof(struct iw_param))
++#define IW_EV_ADDR_LEN  (IW_EV_LCP_LEN + sizeof(struct sockaddr))
++#define IW_EV_QUAL_LEN  (IW_EV_LCP_LEN + sizeof(struct iw_quality))
++
++/* Note : in the case of iw_point, the extra data will come at the
++ * end of the event */
++
++#endif  /* _LINUX_WIRELESS_H */
++
++
++#define IWEVCUSTOM	0x8C02		/* Driver specific ascii string */
++#define IWEVFIRST	0x8C00
++#define IW_EVENT_IDX(cmd)	((cmd) - IWEVFIRST)
++
++/* iw_point events are special. First, the payload (extra data) come at
++ * the end of the event, so they are bigger than IW_EV_POINT_LEN. Second,
++ * we omit the pointer, so start at an offset. */
++#define IW_EV_POINT_OFF (((char *) &(((struct iw_point *) NULL)->length)) - (char *) NULL)
++
++//wpa_supplicant event flags.
++#define	RT_ASSOC_EVENT_FLAG                         0x0101
++#define	RT_DISASSOC_EVENT_FLAG                      0x0102
++#define	RT_REQIE_EVENT_FLAG                         0x0103
++#define	RT_RESPIE_EVENT_FLAG                        0x0104
++#define	RT_ASSOCINFO_EVENT_FLAG                     0x0105
++#define RT_PMKIDCAND_FLAG                           0x0106
++#endif
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_upnp.h
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_upnp.h
+@@ -0,0 +1,163 @@
++/*
++
++
++*/
++#ifndef __WSC_UPNP_H__
++#define __WSC_UPNP_H__
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#ifndef IN
++#define IN
++#endif
++
++#ifndef OUT
++#define OUT
++#endif
++
++#ifndef INOUT
++#define INOUT
++#endif
++
++#define WSC_UPNP_DESC_URL_LEN	200	
++//peter : 0523
++//extern char HostDescURL[WSC_UPNP_DESC_URL_LEN];	// Used to save the DescriptionURL of local host.
++extern unsigned int HostIPAddr;						// Used to save the binded IP address of local host.
++/* 
++  Wsc Event format and Service State variable names, values, and defaults.
++	WLANEvent: 
++		This state variable event indicates that a WCN-NET Probe-Request or an 802.1X/WCN-NET 
++		EAP frame was received on the 802.11 network. The proxy service issues the event.
++	APStatus:
++		This state variable event indicates that the AP has either had a configuration change 
++		or that the AP has had too many failed authentications against its PIN/password and has 
++		locked itself out of Enrollee mode.
++	STAStatus:
++		This state variable event indicates that the STA has either had a configuration change 
++		or that the STA has had too many failed authentications against its PIN/password and 
++		has locked itself out of Enrollee mode.
++*/
++#define WSC_STATE_VAR_COUNT		3
++#define WSC_STATE_VAR_MAXVARS	WSC_STATE_VAR_COUNT
++// Max value length. TODO: shiang: shall we need this??
++#define WSC_STATE_VAR_MAX_STR_LEN 1024 
++
++#define WSC_EVENT_WLANEVENT		0		// Index of "WLANEvent" State variable// shiang
++#define WSC_EVENT_APSTATUS		1		// Index of "APStatus" State variable
++#define WSC_EVENT_STASTATUS		2		// Index of "STAStatus" State variable
++
++
++/*****************************************************************************
++	Wsc Control Point Related data structures.
++ *****************************************************************************/
++#define NAME_SIZE  256	//refer to UPnP Library
++struct upnpService{
++	char ServiceId[NAME_SIZE];			//Service identification
++	char ServiceType[NAME_SIZE];		//Service type.
++	char SCPDURL[NAME_SIZE];			//URL to service description
++	char EventURL[NAME_SIZE];			//URL for eventing
++	char ControlURL[NAME_SIZE];			//URL for control
++    char SID[NAME_SIZE];				//Subscribe Identifier
++	char *StateVarVal[WSC_STATE_VAR_COUNT];
++	struct upnpService *next;			//Pointer to next service.
++};
++
++/*
++	The following data structure used to save the UPnP Device which
++	support WSC.
++*/
++
++struct upnpDevice
++{
++	char UDN[NAME_SIZE];				//uuid
++	char DescDocURL[NAME_SIZE];			//URL of the device description file
++	char FriendlyName[NAME_SIZE];		//short user-friendly title
++	char PresURL[NAME_SIZE];			//URL for presentation
++	int  AdvrTimeOut;					//Device Advertisement timeout
++	int timeCount;
++	unsigned int ipAddr;				//IP address of this device
++	struct upnpService services;		//Wsc Device Service related info
++};
++
++//typedef struct upnpDevice upnpDevice_t;
++
++struct upnpDeviceNode {
++	struct upnpDevice device;
++	struct upnpDeviceNode *next;
++};
++
++
++/*
++	The following data structure used to save the UPnP Contorl Point 
++	which subscribe to us.
++*/
++struct upnpCtrlPoint
++{
++	char SubURL[NAME_SIZE];				//URL for subscription
++	char SID[NAME_SIZE];				//Subscription ID of the Control Point
++	int  SubTimeOut;					//Subscription time-out
++	unsigned int ipAddr;				//IP address of this control point
++};
++
++struct upnpCPNode {
++	struct upnpCtrlPoint device;
++	struct upnpCPNode *next;
++};
++
++
++/* Device type for wsc device  */
++#define WscDeviceTypeStr	"urn:schemas-wifialliance-org:device:WFADevice:1"
++
++/* Service type for wsc services */
++#define WscServiceTypeStr	"urn:schemas-wifialliance-org:service:WFAWLANConfig:1"
++
++/* Service Id for wsc services */
++#define WscServiceIDStr		"urn:wifialliance-org:serviceId:WFAWLANConfig1"
++
++typedef enum{
++	ERR_UPNP_WSC_ACTION_ACT = 401,
++	ERR_UPNP_WSC_ACTION_ARG = 402,
++	ERR_UPNP_WSC_ACTION_VAR = 403,
++	ERR_UPNP_WSC_ACTION_FAILED = 501,
++}WSC_UPNP_ACTION_ERRCODE;
++
++
++int WscEventCtrlMsgRecv(
++	IN char *pBuf,
++	IN int  bufLen);
++
++int WscEventDataMsgRecv(
++	IN char *pBuf,
++	IN int  bufLen);
++
++int WscEventMgmtMsgRecv(
++	IN char *pBuf,
++	IN int  bufLen);
++
++int wscU2KMsgCreate(
++	INOUT char **dstPtr,
++	IN char *srcPtr,
++	IN int msgLen,
++	IN int EAPType);
++
++
++int WscUPnPDevStop(void);
++int WscUPnPDevStart(
++	IN char *ipAddr,
++	IN unsigned short port,
++	IN char *descDoc,
++	IN char *webRootDir);
++
++
++int WscUPnPCPStop(void);
++int WscUPnPCPStart(
++	IN char *ip_address,
++	IN unsigned short port);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_upnp_cp.c
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_upnp_cp.c
+@@ -0,0 +1,1368 @@
++/*
++	wsc UPnP Contorl Point routines
++
++
++*/
++#include <stdio.h>
++#include <string.h>
++#include "sample_util.h"
++#include "wsc_common.h"
++#include "wsc_msg.h"
++#include "wsc_upnp.h"
++#include "wsc_ioctl.h"
++#include "upnp.h"
++#include "ixmlparser.h"
++
++static UpnpClient_Handle WscCPHandle = -1;
++
++/* Global arrays for storing variable names and counts for Wsc services */
++static char *WscVarName[WSC_STATE_VAR_COUNT] = {"WLANEvent", "APStatus", "STAStatus"};
++
++/* Timeout to request during subscriptions */
++#define DEF_SUBSCRIPTION_TIMEOUT	1801
++
++/* The first node in the global device list, or NULL if empty */
++struct upnpDeviceNode *WscDeviceList = NULL;
++
++
++
++int WscUPnPCPDeviceHandler(
++	IN Upnp_EventType EventType,
++	IN void *Event,
++	IN void *Cookie);
++
++	
++/********************************************************************************
++ * WscUPnPCPDumpList
++ *
++ * Description: 
++ *       Print the universal device names for each device in the Wsc device list
++ *
++ * Parameters:
++ *   None
++ *
++ ********************************************************************************/
++int WscUPnPCPDumpList(void)
++{
++	struct upnpDeviceNode *nodePtr;
++	struct upnpDevice *dev;
++	struct upnpService *service;
++	int i = 0;
++
++	printf("WscUPnPCPDumpList:\n");
++	nodePtr = WscDeviceList;
++	while (nodePtr) 
++	{
++		dev = &nodePtr->device;
++		service = &dev->services;
++		
++		printf("UPnPDevice No.%3d:\n", ++i);
++		printf("\tDevice:\n");
++		printf("\t\tFriendlyName=%s!\n", dev->FriendlyName);
++		printf("\t\tDescDocURL=%s!\n", dev->DescDocURL);
++		printf("\t\tUDN=%s!\n", dev->UDN);
++		printf("\t\tPresURL=%s!\n", dev->PresURL);
++		printf("\t\tIP Address=0x%x!\n", dev->ipAddr);
++		printf("\t\tAdvrTimeOut=%d!\n", dev->AdvrTimeOut);
++		printf("\tService:\n");
++		printf("\t\tservIdStr=%s!\n", service->ServiceId);
++		printf("\t\tservTypeStr=%s!\n", service->ServiceType);
++		printf("\t\tscpdURL=%s!\n", service->SCPDURL);
++		printf("\t\teventURL=%s!\n", service->EventURL);
++		printf("\t\tcontrolURL=%s!\n", service->ControlURL);
++		printf("\t\tsubscribeID=%s!\n", service->SID);
++		
++		nodePtr = nodePtr->next;
++	}
++	printf("\n");
++
++	return WSC_SYS_SUCCESS;
++}
++
++
++/********************************************************************************
++ * WscUPnPCPDeleteNode
++ *
++ * Description: 
++ *       Delete a device node from the Wsc device list.  Note that this function is 
++ *       NOT thread safe, and should be called from another function that has already 
++ *       locked the Wsc device list.
++ *
++ * Parameters:
++ *   node -- The device node
++ *
++ * Return:
++ *    WSC_SYS_SUCCESS - if success
++ *    WSC_SYS_ERROR   - if failure
++ ********************************************************************************/
++int WscUPnPCPDeleteNode(
++	IN struct upnpDeviceNode *node)
++{
++	int rc, var;
++
++	if (NULL == node) 
++	{
++		DBGPRINTF(RT_DBG_ERROR, "ERROR: WscUPnPCPDeleteNode: Node is empty\n");
++		return WSC_SYS_ERROR;
++	}
++
++	/* If we have a valid control SID, then unsubscribe */
++	if (strcmp(node->device.services.SID, "") != 0) 
++	{
++		rc = UpnpUnSubscribe(WscCPHandle, node->device.services.SID);
++		if (rc == 0) 
++			DBGPRINTF(RT_DBG_INFO, "Unsubscribed from WscService EventURL with SID=%s\n", node->device.services.SID);
++		else
++			DBGPRINTF(RT_DBG_ERROR, "Error unsubscribing to WscService EventURL -- %d\n", rc);
++	}
++			
++	for (var = 0; var < WSC_STATE_VAR_COUNT; var++) 
++	{
++		if (node->device.services.StateVarVal[var])
++			free(node->device.services.StateVarVal[var]);
++	}
++
++	//Notify New Device Added
++//	WscCPDevUpdate(NULL, NULL, node->device.UDN, DEVICE_REMOVED);
++	free(node);
++	node = NULL;
++
++	return WSC_SYS_SUCCESS;
++}
++
++
++/********************************************************************************
++ * WscUPnPCPRemoveDevice
++ *
++ * Description: 
++ *       Remove a device from the wsc device list.
++ *
++ * Parameters:
++ *   UDN -- The Unique Device Name for the device to remove
++ *
++ * Return:
++ * 		Always success
++ ********************************************************************************/
++int WscUPnPCPRemoveDevice(IN char *UDN)
++{
++	struct upnpDeviceNode *devNodePtr, *prev;
++
++	devNodePtr = WscDeviceList;
++	if (!devNodePtr)
++	{
++		DBGPRINTF(RT_DBG_INFO, "WARNING: WscUPnPCPRemoveDevice: Device list empty\n");
++	}
++	else
++	{
++		if (strcmp(devNodePtr->device.UDN, UDN) == 0)
++		{
++			WscDeviceList = devNodePtr->next;
++			WscUPnPCPDeleteNode(devNodePtr);
++		}
++		else
++		{
++			prev = devNodePtr;
++			devNodePtr = devNodePtr->next;
++
++			while (devNodePtr)
++			{
++				if (strcmp(devNodePtr->device.UDN, UDN) == 0)
++				{
++					prev->next = devNodePtr->next;
++					WscUPnPCPDeleteNode(devNodePtr);
++					break;
++				}
++
++				prev = devNodePtr;
++				devNodePtr = devNodePtr->next;
++			}
++		}
++	}
++
++	return WSC_SYS_SUCCESS;
++}
++
++
++/********************************************************************************
++ * WscUPnPCPRemoveAll
++ *
++ * Description: 
++ * 		Remove all devices from the wsc device list.
++ *
++ * Parameters:
++ *   	void
++ *
++ * Return:
++ * 		Always success
++ ********************************************************************************/
++int WscUPnPCPRemoveAll(void)
++{
++	struct upnpDeviceNode *devNodePtr, *next;
++
++	devNodePtr = WscDeviceList;
++	WscDeviceList = NULL;
++
++	while(devNodePtr)
++	{
++		next = devNodePtr->next;
++		WscUPnPCPDeleteNode(devNodePtr);
++		devNodePtr = next;
++	}
++
++	return WSC_SYS_SUCCESS;
++}
++
++
++int WscUPnPCPCheckService(
++	IN IXML_Document * DescDoc)
++{
++	// TODO:Check if the SCPD description XML file has correct format
++	return 0;
++}
++
++
++/********************************************************************************
++ * WscUPnPCPAddDevice
++ *
++ * Description: 
++ *       Add a new Wsc device into the wsc device list or just update its advertisement 
++ *       expiration timeout if it alreay exists in the list.
++ *
++ * Parameters:
++ *   	deviceType -- The device type want to add to the Device List
++ *   	d_event -- The "Upnp_Discovery" data
++ *
++ * Return:
++ *	 	WSC_SYS_SUCCESS - if success
++ *   	other value     - if failure
++ ********************************************************************************/
++int WscUPnPCPAddDevice(
++	IN char *deviceType,
++	IN struct Upnp_Discovery *d_event,
++	OUT unsigned int *outIPAddr)
++{
++	IXML_Document *DescDoc = NULL, *scpdDescDoc = NULL;
++	char *deviceTypeStr = NULL, *friendlyName = NULL, *baseURL = NULL, *relURL = NULL, *UDN = NULL;
++	char presURL[200] = {0};
++	char *serviceId = NULL, *SCPDURL = NULL, *eventURL = NULL, *controlURL = NULL;
++	Upnp_SID eventSID;
++	struct upnpDeviceNode *newDeviceNode, *devNodePtr;
++	int ret = WSC_SYS_ERROR;
++	int found = 0;
++	int TimeOut = DEF_SUBSCRIPTION_TIMEOUT;
++	unsigned int ipAddr = 0;
++	unsigned short port = 0;
++
++	if(d_event->DestAddr != NULL)
++	{
++		ipAddr = (unsigned int)d_event->DestAddr->sin_addr.s_addr;
++		port = (unsigned short)d_event->DestAddr->sin_port;
++		*outIPAddr = ipAddr;
++	}
++	
++	printf("%s():outIPAddr=0x%x!\n", __FUNCTION__, *outIPAddr);
++	if( !(strcmp(&HostDescURL[0], &d_event->Location[0])))
++	{
++//		DBGPRINTF(RT_DBG_INFO, "%s():Adver from LocalDev, ignore it!\n", __FUNCTION__);
++		goto done;
++	}
++		
++	// Check if this device is already in the list
++	devNodePtr = WscDeviceList;
++	while (devNodePtr)
++	{
++		if((strcmp(devNodePtr->device.UDN, d_event->DeviceId) == 0) 
++			&& (strcmp(devNodePtr->device.DescDocURL, d_event->Location) == 0))
++		{
++			found = 1;
++			break;
++		}
++		devNodePtr = devNodePtr->next;
++	}
++
++	if (found)
++	{
++		// Update the advertisement timeout field
++//		DBGPRINTF(RT_DBG_INFO, "Old device, just update the expires!\n");
++		devNodePtr->device.AdvrTimeOut = d_event->Expires;
++		devNodePtr->device.timeCount = 0;
++	} else {
++		DBGPRINTF(RT_DBG_INFO, "Adver from a new device!\n");
++		if((ret = UpnpDownloadXmlDoc(d_event->Location, &DescDoc)) != UPNP_E_SUCCESS){
++			DBGPRINTF(RT_DBG_ERROR, "Get device description failed from %s -- err=%d\n", d_event->Location, ret);
++			goto done;
++		}
++
++		/* Read key elements from description document */
++		UDN = SampleUtil_GetFirstDocumentItem(DescDoc, "UDN");
++		deviceTypeStr = SampleUtil_GetFirstDocumentItem(DescDoc, "deviceType");
++		friendlyName = SampleUtil_GetFirstDocumentItem(DescDoc, "friendlyName");
++		baseURL = SampleUtil_GetFirstDocumentItem(DescDoc, "URLBase");
++		relURL = SampleUtil_GetFirstDocumentItem(DescDoc, "presentationURL");
++
++		if((UDN == NULL) || (deviceTypeStr == NULL) || (friendlyName == NULL))
++		{
++			DBGPRINTF(RT_DBG_ERROR, "%s(): Get UDN failed!\n", __FUNCTION__);
++			goto done;
++		}
++		UpnpResolveURL((baseURL ? baseURL : d_event->Location), relURL, presURL);
++	
++		if (SampleUtil_FindAndParseService(DescDoc, d_event->Location, WscServiceTypeStr,
++											&serviceId, &SCPDURL, &eventURL,&controlURL))
++		{
++			if (SCPDURL != NULL)
++			{	
++				if ((ret = UpnpDownloadXmlDoc(SCPDURL, &scpdDescDoc)) != UPNP_E_SUCCESS)
++				{
++					DBGPRINTF(RT_DBG_ERROR, "Get service description failed from %s -- err=%d\n", SCPDURL, ret);
++				} else {
++					WscUPnPCPCheckService(scpdDescDoc);
++					free(scpdDescDoc);
++				}
++			}
++
++			if ((ret = UpnpSubscribe(WscCPHandle, eventURL, &TimeOut, eventSID)) != UPNP_E_SUCCESS)
++			{
++				DBGPRINTF(RT_DBG_ERROR, "Error Subscribing to EventURL(%s) -- %d\n", eventURL, ret);
++				goto done;
++			}
++		
++			/* Create a new device node */
++			newDeviceNode = (struct upnpDeviceNode *)malloc(sizeof(struct upnpDeviceNode));
++			if (newDeviceNode == NULL) {
++				DBGPRINTF(RT_DBG_ERROR, "%s: create new wsc Device Node failed!\n", __FUNCTION__);
++				goto done;
++			}
++			memset(newDeviceNode, 0, sizeof(newDeviceNode));
++			newDeviceNode->device.services.StateVarVal[WSC_EVENT_WLANEVENT] = NULL;
++			newDeviceNode->device.services.StateVarVal[WSC_EVENT_APSTATUS] = NULL;
++			newDeviceNode->device.services.StateVarVal[WSC_EVENT_STASTATUS] = NULL;
++
++			strncpy(newDeviceNode->device.UDN, UDN, NAME_SIZE-1);
++			strncpy(newDeviceNode->device.DescDocURL, d_event->Location, NAME_SIZE-1);
++			strncpy(newDeviceNode->device.FriendlyName, friendlyName, NAME_SIZE-1);
++			strncpy(newDeviceNode->device.PresURL, presURL, NAME_SIZE-1);
++			newDeviceNode->device.AdvrTimeOut = d_event->Expires;
++			newDeviceNode->device.timeCount = 0;
++			newDeviceNode->device.ipAddr = ipAddr;
++			strncpy(newDeviceNode->device.services.ServiceType, WscServiceTypeStr, NAME_SIZE-1);
++			if (serviceId)
++				strncpy(newDeviceNode->device.services.ServiceId, serviceId, NAME_SIZE-1);
++			if (SCPDURL)
++				strncpy(newDeviceNode->device.services.SCPDURL, SCPDURL, NAME_SIZE-1);
++			if (eventURL)
++				strncpy(newDeviceNode->device.services.EventURL, eventURL, NAME_SIZE-1);
++			if (controlURL)
++				strncpy(newDeviceNode->device.services.ControlURL, controlURL, NAME_SIZE-1);
++			if (eventSID)
++				strncpy(newDeviceNode->device.services.SID, eventSID, NAME_SIZE-1);
++
++			newDeviceNode->next = NULL;
++#if 0
++			for (var = 0; var < WSC_STATE_VAR_COUNT; var++)
++			{
++				deviceNode->device.services.serviceList.stateVarVals[var] = (char *)malloc(WSC_STATE_VAR_MAX_STR_LEN);
++				strcpy(deviceNode->device.services.serviceList.stateVarVals[var], "");
++			}
++#endif
++			// Insert the new device node in the list
++			if(WscDeviceList)
++			{
++				newDeviceNode->next = WscDeviceList->next;
++				WscDeviceList->next = newDeviceNode;
++			} else {
++				WscDeviceList = newDeviceNode;
++			}
++
++			ret = WSC_SYS_SUCCESS;
++
++			// TODO:Notify New Device Added
++			//WscCPDevUpdate(NULL, NULL, deviceNode->device.UDN, DEVICE_ADDED);
++		} else {
++			DBGPRINTF(RT_DBG_ERROR, "Error: Could not find Service: %s\n", WscServiceTypeStr);
++		}
++	}
++
++done:
++	if (DescDoc)
++		ixmlDocument_free(DescDoc);
++			
++	if (UDN)
++		free(UDN);
++	if (deviceTypeStr)
++		free(deviceTypeStr);
++    if (friendlyName)
++		free(friendlyName);
++	if (baseURL)
++		free(baseURL);
++	if (relURL)
++		free(relURL);
++
++	if (serviceId)
++		free(serviceId);
++	if (controlURL)
++		free(controlURL);
++	if (eventURL)
++		free(eventURL);
++
++	return ret;
++}
++
++
++/********************************************************************************
++ * WscStateVarUpdate
++ *
++ * Description: 
++ *       Update a Wsc state table.  Called when an event is received.  
++ *
++ * Parameters:
++ *   devNode -- The Wsc Device which need to update the State Variables.
++ *   ChangedStateVars -- DOM document representing the XML received with the event
++ *
++ * Note: 
++ *       This function is NOT thread save.  It must be called from another function 
++ *       that has locked the global device list.
++ ********************************************************************************/
++void WscStateVarUpdate(
++	IN struct upnpDeviceNode *devNode,
++	IN IXML_Document *stateDoc)
++{
++	IXML_NodeList *properties, *stateVars;
++	IXML_Element *propItem, *varItem;
++	int propLen;
++	int i, j;
++	char *stateVal = NULL;
++
++
++	/* Find all of the e:property tags in the document */
++	properties = ixmlDocument_getElementsByTagName(stateDoc, "e:property");
++	if (properties != NULL)
++	{
++		propLen = ixmlNodeList_length(properties);
++		for (i = 0; i < propLen; i++)
++		{ 	/* Loop through each property change found */
++			propItem = (IXML_Element *)ixmlNodeList_item(properties, i);
++			
++			/*
++				For each stateVar name in the state table, check if this
++				is a corresponding property change
++			*/
++			for (j = 0; j < WSC_STATE_VAR_MAXVARS; j++)
++			{
++				stateVars = ixmlElement_getElementsByTagName(propItem, WscVarName[j]);
++				/* If found matched item, extract the value, and update the stateVar table */
++				if (stateVars)
++				{
++					if (ixmlNodeList_length(stateVars))
++					{
++						varItem = (IXML_Element *)ixmlNodeList_item(stateVars, 0);
++						stateVal = SampleUtil_GetElementValue(varItem);
++						if (stateVal)
++						{
++							if (devNode->device.services.StateVarVal[j] != NULL)
++							{
++								//DBGPRINTF(RT_DBG_INFO, "Free the OLD statVarVal!\n"); 
++								// We didn't need do this, because the libupnp will free it.
++								//free(&devNode->device.services.StateVarVal[j]);
++							}
++							devNode->device.services.StateVarVal[j] = stateVal;
++						}
++					}
++
++					ixmlNodeList_free(stateVars);
++					stateVars = NULL;
++				}
++			}
++		}
++		
++		ixmlNodeList_free(properties);
++		
++	}
++}
++
++
++void WscUPnPCPHandleGetVar(
++	IN char *controlURL,
++	IN char *varName,
++	IN DOMString varValue)
++{
++	struct upnpDeviceNode *tmpdevnode;
++
++	tmpdevnode = WscDeviceList;
++	while (tmpdevnode)
++	{
++		if(strcmp(tmpdevnode->device.services.ControlURL, controlURL) == 0)
++		{
++//			SampleUtil_StateUpdate(varName, varValue, tmpdevnode->device.UDN, GET_VAR_COMPLETE);
++			break;
++		}
++		tmpdevnode = tmpdevnode->next;
++	}
++}
++
++
++/********************************************************************************
++ * WscUPnPCPGetDevice
++ *
++ * Description: 
++ *       Given a list number, returns the pointer to the device
++ *       node at that position in the global device list.  Note
++ *       that this function is not thread safe.  It must be called 
++ *       from a function that has locked the global device list.
++ *
++ * Parameters:
++ *   devIPAddr -- The IP address of the device.
++ *   devnode -- The output device node pointer.
++ *
++ ********************************************************************************/
++int WscUPnPCPGetDevice(
++	IN uint32 devIPAddr,
++	IN struct upnpDeviceNode **devnode)
++{
++	struct upnpDeviceNode *devPtr = NULL;
++
++	devPtr = WscDeviceList;
++
++	while (devPtr)
++	{
++		if (devPtr->device.ipAddr == devIPAddr)
++			break;
++		devPtr = devPtr->next;
++	}
++
++	if (!devPtr)
++	{
++		DBGPRINTF(RT_DBG_ERROR, "Didn't find the UPnP Device with IP Address -- 0x%x\n", devIPAddr);
++		return WSC_SYS_ERROR;
++    }
++
++	*devnode = devPtr;
++	
++	return WSC_SYS_SUCCESS;
++}
++
++
++/********************************************************************************
++ * WscUPnPCPSendAction
++ *
++ * Description: 
++ *       Send an Action request to the specified service of a device.
++ *
++ * Parameters:
++ *   devnum -- The number of the device (order in the list,
++ *             starting with 1)
++ *   actionname -- The name of the action.
++ *   param_name -- An array of parameter names
++ *   param_val -- The corresponding parameter values
++ *   param_count -- The number of parameters
++ *
++ ********************************************************************************/
++int WscUPnPCPSendAction(
++	IN uint32 ipAddr,
++	IN char *actionname,
++	IN char **param_name,
++	IN char **param_val,
++	IN int param_count)
++{
++	struct upnpDeviceNode *devnode;
++	IXML_Document *actionNode = NULL;
++	int rc = WSC_SYS_SUCCESS;
++	int param;
++
++    rc = WscUPnPCPGetDevice(ipAddr, &devnode);
++	if (rc == WSC_SYS_SUCCESS)
++	{
++		if (param_count == 0) 
++		{
++			actionNode = UpnpMakeAction(actionname, WscServiceTypeStr, 0, NULL);
++		}
++		else
++		{
++			for (param = 0; param < param_count; param++)
++			{
++				rc = UpnpAddToAction(actionNode, actionname, WscServiceTypeStr, 
++										param_name[param], param_val[param]);
++				if (rc != UPNP_E_SUCCESS ) 
++				{
++					DBGPRINTF(RT_DBG_ERROR, "ERROR: WscUPnPCPSendAction: Trying to add action param, rc=%d!\n", rc);
++					//return -1; // TBD - BAD! leaves mutex locked
++				}
++			}
++		}
++		DBGPRINTF(RT_DBG_INFO, "ControlURL=%s!\n", devnode->device.services.ControlURL);
++		rc = UpnpSendActionAsync( WscCPHandle, devnode->device.services.ControlURL, 
++									WscServiceTypeStr, NULL, actionNode, 
++									WscUPnPCPDeviceHandler, NULL);
++
++        if (rc != UPNP_E_SUCCESS)
++		{
++			DBGPRINTF(RT_DBG_ERROR, "Error in UpnpSendActionAsync -- %d\n", rc);
++			rc = WSC_SYS_ERROR;
++		}
++	}
++	else 
++	{
++		DBGPRINTF(RT_DBG_ERROR, "WscUPnPCPGetDevice failed!\n");
++	}
++	
++	if (actionNode)
++		ixmlDocument_free(actionNode);
++
++	return rc;
++}
++
++
++char *wscCPPutWLANResponseParam[]={"NewMessage", "NewWLANEventType", "NewWLANEventMAC"};
++char *wscCPPutWLANResponseStr[3]={NULL, "2", "00:80:c8:34:c9:56"};
++int wscCPPutWLANResponse(char *msg, int msgLen)
++{
++	unsigned char *encodeStr = NULL;
++	RTMP_WSC_MSG_HDR *rtmpHdr = NULL;
++	int len;
++
++	rtmpHdr = (RTMP_WSC_MSG_HDR *)msg;
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(TotalLen=%d, headerLen=%d)!\n", __FUNCTION__, msgLen, sizeof(RTMP_WSC_MSG_HDR));
++	DBGPRINTF(RT_DBG_INFO, "\tMsgType=%d!\n", rtmpHdr->msgType);
++	DBGPRINTF(RT_DBG_INFO, "\tMsgSubType=%d!\n", rtmpHdr->msgSubType);
++	DBGPRINTF(RT_DBG_INFO, "\tipAddress=0x%x!\n", rtmpHdr->ipAddr);
++	DBGPRINTF(RT_DBG_INFO, "\tMsgLen=%d!\n", rtmpHdr->msgLen);
++	
++	if(rtmpHdr->msgType == WSC_OPCODE_UPNP_CTRL || rtmpHdr->msgType == WSC_OPCODE_UPNP_MGMT)
++	{
++		DBGPRINTF(RT_DBG_INFO, "Receive a UPnP Ctrl/Mgmt Msg!\n");
++		return 0;
++	}
++	wsc_hexdump("wscCPPutWLANResponse-K2UMsg", msg, msgLen);
++
++	len = ILibBase64Encode((unsigned char *)(msg + sizeof(RTMP_WSC_MSG_HDR)), rtmpHdr->msgLen, &encodeStr);
++	if (len >0 && encodeStr){
++		wscCPPutWLANResponseStr[0] = (char *)encodeStr;
++		WscUPnPCPSendAction(rtmpHdr->ipAddr, "PutWLANResponse", wscCPPutWLANResponseParam, wscCPPutWLANResponseStr, 3);
++		free(encodeStr);
++	}
++
++	return 0;
++}
++
++
++int wscCPPutMessage(char *msg, int msgLen)
++{
++	unsigned char *encodeStr = NULL;
++	RTMP_WSC_MSG_HDR *rtmpHdr = NULL;
++	int len;
++	char *wscCPStateVarParam="NewInMessage";
++	
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(TotalLen=%d, headerLen=%d)!\n", __FUNCTION__, msgLen, sizeof(RTMP_WSC_MSG_HDR));
++	rtmpHdr = (RTMP_WSC_MSG_HDR *)msg;
++	DBGPRINTF(RT_DBG_INFO, "\tMsgType=%d!\n", rtmpHdr->msgType);
++	DBGPRINTF(RT_DBG_INFO, "\tMsgSubType=%d!\n", rtmpHdr->msgSubType);
++	DBGPRINTF(RT_DBG_INFO, "\tipAddress=0x%x!\n", rtmpHdr->ipAddr);
++	DBGPRINTF(RT_DBG_INFO, "\tMsgLen=%d!\n", rtmpHdr->msgLen);
++	
++	if(rtmpHdr->msgType == WSC_OPCODE_UPNP_CTRL || rtmpHdr->msgType == WSC_OPCODE_UPNP_MGMT)
++	{
++		DBGPRINTF(RT_DBG_INFO, "Receive a UPnP Ctrl/Mgmt Msg!\n");
++		return 0;
++	}
++	wsc_hexdump("wscCPPutMessage-K2UMsg", msg, msgLen);
++
++	len = ILibBase64Encode((unsigned char *)(msg + sizeof(RTMP_WSC_MSG_HDR)), rtmpHdr->msgLen, &encodeStr);
++	if (len >0)
++	{
++		WscUPnPCPSendAction(rtmpHdr->ipAddr, "PutMessage", &wscCPStateVarParam, &encodeStr, 1);
++		free(encodeStr);
++	}
++	return 0;
++}
++
++
++
++/********************************************************************************
++ * WscUPnPCPSendAction
++ *
++ * Description: 
++ *       Send an Action request to the specified service of a device.
++ *
++ * Parameters:
++ *   devnum -- The number of the device (order in the list,
++ *             starting with 1)
++ *   actionname -- The name of the action.
++ *   param_name -- An array of parameter names
++ *   param_val -- The corresponding parameter values
++ *   param_count -- The number of parameters
++ *
++ ********************************************************************************/
++#define CP_RESP_SUPPORT_LIST_NUM	2
++
++static char *stateVarNames[CP_RESP_SUPPORT_LIST_NUM]={"NewDeviceInfo", "NewOutMessage"};
++static char *actionResNames[CP_RESP_SUPPORT_LIST_NUM]= {"u:GetDeviceInfoResponse", "u:PutMessageResponse"};
++
++int WscUPnPCPHandleActionResponse(
++	IN struct Upnp_Action_Complete *a_event)
++{
++	IXML_NodeList *nodeList = NULL, *msgNodeList = NULL;
++	IXML_Node *element, *child = NULL;
++	char *varName = NULL;
++	struct upnpDeviceNode *nodePtr;
++	
++	char *inStr = NULL, *pWscU2KMsg = NULL;
++	unsigned char *decodeStr = NULL;
++	int i, decodeLen = 0, wscU2KMsgLen;
++	
++	unsigned int UPnPDevIP = 0;
++			
++	DBGPRINTF(RT_DBG_INFO, "ErrCode = %d, CtrlUrl=%s!\n", a_event->ErrCode, a_event->CtrlUrl);
++	
++	if(a_event->ActionResult == NULL || a_event->ErrCode != 0)
++		return 0;
++
++	// Check if this device is already in the list
++	nodePtr = WscDeviceList;
++	while (nodePtr)
++	{
++		if(strcmp(nodePtr->device.services.ControlURL, a_event->CtrlUrl) == 0)
++		{
++			UPnPDevIP = nodePtr->device.ipAddr;
++			nodePtr->device.timeCount = nodePtr->device.AdvrTimeOut;
++			break;
++		}
++		nodePtr = nodePtr->next;
++    }
++	if (UPnPDevIP == 0)
++		goto done;
++	DBGPRINTF(RT_DBG_INFO, "Find the ActionResponse Device IP=%x\n", UPnPDevIP);
++
++	
++	/*
++		We just support following ActionResponse from remote device.
++	*/
++	for (i=0; i < CP_RESP_SUPPORT_LIST_NUM; i++)
++	{
++		DBGPRINTF(RT_DBG_INFO, "check actionResNames[%d]=%s!\n", i, actionResNames[i]);
++		nodeList = ixmlDocument_getElementsByTagName(a_event->ActionResult, actionResNames[i]);
++		if(nodeList){
++			varName = stateVarNames[i];
++			break;
++		}
++	}
++
++	if(nodeList == NULL)
++	{
++		DBGPRINTF(RT_DBG_INFO, "UnSupportted ActResponse!\n");
++		goto done;
++	}
++	
++	if ((element = ixmlNodeList_item(nodeList, 0)))
++	{
++		//First check if we have supportted State Variable name!
++		ixmlNode_getElementsByTagName(element, varName, &msgNodeList);
++		if(msgNodeList != NULL)
++		{
++			DBGPRINTF(RT_DBG_INFO, "find stateVarName=%s!\n", varName);
++			while((child = ixmlNode_getFirstChild(element))!= NULL)
++			{	// Find the Response text content!
++				if (ixmlNode_getNodeType(child) == eTEXT_NODE)
++				{
++					inStr = strdup(ixmlNode_getNodeValue(child));
++					break;
++				}
++				element = child;
++			}
++			ixmlNodeList_free(msgNodeList);
++		}
++	}
++	
++	// Here depends on the ActionRequest and ActionResponse, dispatch to correct handler!
++	if(inStr!= NULL)
++	{
++		DBGPRINTF(RT_DBG_INFO, "Receive a %s Message!\n", actionResNames[i]);
++		DBGPRINTF(RT_DBG_INFO, "\tinStr=%s!\n", inStr);
++		decodeLen = ILibBase64Decode((unsigned char *)inStr, strlen(inStr), &decodeStr);
++		if((decodeLen > 0) && (ioctl_sock >= 0))
++		{
++			RTMP_WSC_U2KMSG_HDR *msgHdr;
++			WscEnvelope *msgEnvelope;
++			int msgQIdx = -1;
++			 
++			/* Prepare the msg buffers */
++			wscU2KMsgLen = wscU2KMsgCreate(&pWscU2KMsg, (char *)decodeStr, decodeLen, EAP_FRAME_TYPE_WSC);
++			if (wscU2KMsgLen == 0)
++				goto done;
++
++			/* Prepare the msg envelope */
++			if ((msgEnvelope = wscEnvelopeCreate()) == NULL)
++				goto done;
++			msgEnvelope->callBack = wscCPPutMessage;
++			
++			/* Lock the msgQ and check if we can get a valid mailbox to insert our request! */
++			if (wscMsgQInsert(msgEnvelope, &msgQIdx) != WSC_SYS_SUCCESS)
++				goto done;
++
++			// Fill the session ID to the U2KMsg buffer header.
++			msgHdr = (RTMP_WSC_U2KMSG_HDR *)pWscU2KMsg;
++			msgHdr->envID = msgEnvelope->envID;
++
++			// copy the Addr1 & Addr2
++			memcpy(msgHdr->Addr1, HostMacAddr, MAC_ADDR_LEN);
++			memcpy(msgHdr->Addr2, &UPnPDevIP, sizeof(unsigned int));
++
++			// Now send the msg to kernel space.
++			DBGPRINTF(RT_DBG_INFO, "(%s):Ready to send pWscU2KMsg(len=%d) to kernel by ioctl(%d)!\n", __FUNCTION__, wscU2KMsgLen, ioctl_sock);
++			wsc_hexdump("U2KMsg", pWscU2KMsg, wscU2KMsgLen);
++	
++			if(wsc_set_oid(RT_OID_WSC_EAPMSG, pWscU2KMsg, wscU2KMsgLen) != 0)
++				wscEnvelopeRemove(msgEnvelope, msgQIdx);
++		}
++	}
++
++
++done:
++	if (nodeList)
++		ixmlNodeList_free(nodeList);
++	if (inStr)
++		free(inStr);
++	if (pWscU2KMsg)
++		free(pWscU2KMsg);
++	if (decodeStr)
++		free(decodeStr);
++			
++	//wsc_printEvent(UPNP_CONTROL_ACTION_COMPLETE, (void *)a_event);
++	return 0;
++}
++
++
++/********************************************************************************
++ * WscUPnPCPHandleEvent
++ *
++ * Description: 
++ *       Handle a UPnP event that was received.  Process the event and update
++ *       the appropriate service state table.
++ *
++ * Parameters:
++ *   sid -- The subscription id for the event
++ *   eventkey -- The eventkey number for the event
++ *   changes -- The DOM document representing the changes
++ *
++ * Return:
++ *   None 
++ ********************************************************************************/
++void WscUPnPCPHandleEvent(
++	IN Upnp_SID sid,
++	IN int evntkey,
++	IN IXML_Document * changes)
++{
++	struct upnpDeviceNode *devNode;
++	char *inStr = NULL, *pWscU2KMsg = NULL;
++	unsigned char *decodeStr = NULL;
++	int decodeLen, wscU2KMsgLen;
++	unsigned int UPnPDevIP = 0;
++	
++	devNode = WscDeviceList;
++	while (devNode) 
++	{
++		if(strcmp(devNode->device.services.SID, sid) == 0) 
++		{
++			devNode->device.timeCount = devNode->device.AdvrTimeOut;
++			UPnPDevIP = devNode->device.ipAddr;
++			
++			DBGPRINTF(RT_DBG_INFO, "Received WscService Event: %d for SID %s\n", evntkey, sid);
++			WscStateVarUpdate(devNode, changes);
++
++			inStr = devNode->device.services.StateVarVal[WSC_EVENT_WLANEVENT];
++			if (inStr)
++			{
++#define WSC_EVENT_WLANEVENT_MSG_LEN_MIN		18	// The first byte is the msg type, the next 17 bytes is the MAC address in xx:xx format
++
++				DBGPRINTF(RT_DBG_INFO, "\tWLANEvent=%s!\n", devNode->device.services.StateVarVal[WSC_EVENT_WLANEVENT]);
++				decodeLen = ILibBase64Decode((unsigned char *)inStr, strlen(inStr), &decodeStr);
++
++				if((decodeLen > WSC_EVENT_WLANEVENT_MSG_LEN_MIN) && (ioctl_sock >= 0))
++				{
++					RTMP_WSC_U2KMSG_HDR *msgHdr;
++					WscEnvelope *msgEnvelope;
++					int msgQIdx = -1;
++			 
++					
++			 		decodeLen -= WSC_EVENT_WLANEVENT_MSG_LEN_MIN;
++					
++					/* Prepare the msg buffers */
++					wscU2KMsgLen = wscU2KMsgCreate(&pWscU2KMsg, (char *)(decodeStr + WSC_EVENT_WLANEVENT_MSG_LEN_MIN), 
++													decodeLen, EAP_FRAME_TYPE_WSC);
++					if (wscU2KMsgLen == 0)
++						goto done;
++
++					/* Prepare the msg envelope */
++					if ((msgEnvelope = wscEnvelopeCreate()) == NULL)
++						goto done;
++					msgEnvelope->callBack = wscCPPutMessage;
++			
++					/* Lock the msgQ and check if we can get a valid mailbox to insert our request! */
++					if (wscMsgQInsert(msgEnvelope, &msgQIdx) != WSC_SYS_SUCCESS)
++						goto done;
++
++					// Fill the session ID to the U2KMsg buffer header.
++					msgHdr = (RTMP_WSC_U2KMSG_HDR *)pWscU2KMsg;
++					msgHdr->envID = msgEnvelope->envID;
++
++					// copy the Addr1 & Addr2
++					memcpy(msgHdr->Addr1, HostMacAddr, MAC_ADDR_LEN);
++					memcpy(msgHdr->Addr2, &UPnPDevIP, sizeof(unsigned int));
++
++					// Now send the msg to kernel space.
++					DBGPRINTF(RT_DBG_INFO, "(%s):Ready to send pWscU2KMsg(len=%d) to kernel by ioctl(%d)!\n", __FUNCTION__, wscU2KMsgLen, ioctl_sock);
++					wsc_hexdump("U2KMsg", pWscU2KMsg, wscU2KMsgLen);
++	
++					if(wsc_set_oid(RT_OID_WSC_EAPMSG, pWscU2KMsg, wscU2KMsgLen) != 0)
++						wscEnvelopeRemove(msgEnvelope, msgQIdx);
++				}
++			}
++			if (devNode->device.services.StateVarVal[WSC_EVENT_APSTATUS] != NULL)
++				DBGPRINTF(RT_DBG_INFO, "\tAPStatus=%s!\n", devNode->device.services.StateVarVal[WSC_EVENT_APSTATUS]);
++			if (devNode->device.services.StateVarVal[WSC_EVENT_STASTATUS] != NULL)
++				DBGPRINTF(RT_DBG_INFO, "\tSTAStatus=%s!\n", devNode->device.services.StateVarVal[WSC_EVENT_STASTATUS]);
++			break;
++		}
++		devNode = devNode->next;
++	}
++	
++done:
++
++}
++
++
++/********************************************************************************
++ * WscUPnPCPHandleSubscribeUpdate
++ *
++ * Description: 
++ *       Handle a UPnP subscription update that was received.  Find the 
++ *       service the update belongs to, and update its subscription
++ *       timeout.
++ *
++ * Parameters:
++ *   eventURL -- The event URL for the subscription
++ *   sid -- The subscription id for the subscription
++ *   timeout  -- The new timeout for the subscription
++ *
++ * Return:
++ *    None
++ ********************************************************************************/
++void WscUPnPCPHandleSubscribeUpdate(
++	IN char *eventURL,
++	IN Upnp_SID sid,
++	IN int timeout)
++{
++	struct upnpDeviceNode *tmpdevnode;
++
++	tmpdevnode = WscDeviceList;
++	while (tmpdevnode) 
++	{
++		if( strcmp(tmpdevnode->device.services.EventURL, eventURL) == 0) 
++		{
++			DBGPRINTF(RT_DBG_INFO, "Received WscService Event Renewal for eventURL %s\n", eventURL);
++			strcpy(tmpdevnode->device.services.SID, sid);
++			break;
++		}
++
++		tmpdevnode = tmpdevnode->next;
++	}
++}
++
++
++
++/********************************************************************************
++ * WscUPnPCPDeviceHandler
++ *
++ * Description: 
++ *       The callback handler registered with the SDK while registering the Control Point.
++ *       This callback funtion detects the type of callback, and passes the request on to 
++ *       the appropriate function.
++ *
++ * Parameters:
++ *   EventType -- The type of callback event
++ *   Event -- Data structure containing event data
++ *   Cookie -- Optional data specified during callback registration
++ *
++ * Return:
++ *    Always zero 
++ ********************************************************************************/
++int
++WscUPnPCPDeviceHandler(
++	IN Upnp_EventType EventType,
++	IN void *Event,
++	IN void *Cookie)
++{
++    //wsc_PrintEvent( EventType, Event );
++
++	switch (EventType) 
++	{
++		/*
++			SSDP Stuff 
++		*/
++		case UPNP_DISCOVERY_ADVERTISEMENT_ALIVE:
++		case UPNP_DISCOVERY_SEARCH_RESULT:
++			{
++				struct Upnp_Discovery *d_event = (struct Upnp_Discovery *)Event;
++				unsigned int ipAddr = 0;
++				if (d_event->ErrCode != UPNP_E_SUCCESS)
++				{
++					DBGPRINTF(RT_DBG_ERROR, "Error in Discovery Adv Callback -- %d\n", d_event->ErrCode);
++				}
++				else 
++				{
++					if (strcmp(d_event->DeviceType, WscDeviceTypeStr) == 0)
++					{	//We just need to take care about the WscDeviceTypeStr
++						DBGPRINTF(RT_DBG_INFO, "Receive a Advertisement from a WFADevice(URL=%s)\n", d_event->Location);
++						if (WscUPnPCPAddDevice(WscDeviceTypeStr, d_event, &ipAddr) == WSC_SYS_SUCCESS)
++						{
++							WscUPnPCPDumpList(); // Printing the Wsc Device List for debug
++							WscUPnPCPSendAction(ipAddr,"GetDeviceInfo", NULL, NULL, 0);
++						}
++					}
++				}
++				break;
++			}
++
++		case UPNP_DISCOVERY_SEARCH_TIMEOUT:
++			// Nothing to do here..
++			break;
++
++		case UPNP_DISCOVERY_ADVERTISEMENT_BYEBYE:
++			{
++				struct Upnp_Discovery *d_event = (struct Upnp_Discovery *)Event;
++
++				if (d_event->ErrCode != UPNP_E_SUCCESS)
++				{
++					DBGPRINTF(RT_DBG_ERROR, "Error in Discovery ByeBye Callback -- %d\n", d_event->ErrCode);
++				}
++				else
++				{
++					DBGPRINTF(RT_DBG_INFO, "Received ByeBye for Device: %s\n", d_event->DeviceId);
++	                WscUPnPCPRemoveDevice(d_event->DeviceId);
++					//Dump it for debug
++					WscUPnPCPDumpList();
++				}
++
++				break;
++			}
++
++		/*
++			SOAP Stuff 
++		*/
++		case UPNP_CONTROL_ACTION_COMPLETE:
++			{
++				struct Upnp_Action_Complete *a_event = (struct Upnp_Action_Complete *)Event;
++
++				if (a_event->ErrCode != UPNP_E_SUCCESS)
++					DBGPRINTF(RT_DBG_ERROR, "Error in  Action Complete Callback -- %d\n", a_event->ErrCode);
++				else 
++				{
++					DBGPRINTF(RT_DBG_INFO, "Get event:UPNP_CONTROL_ACTION_COMPLETE!\n");
++					WscUPnPCPHandleActionResponse(a_event);
++				}
++				break;
++			}
++
++		case UPNP_CONTROL_GET_VAR_COMPLETE:
++			{
++				struct Upnp_State_Var_Complete *sv_event = (struct Upnp_State_Var_Complete *)Event;
++
++				if (sv_event->ErrCode != UPNP_E_SUCCESS)
++				{
++					DBGPRINTF(RT_DBG_ERROR, "Error in Get Var Complete Callback -- %d\n", sv_event->ErrCode);
++                } else {
++					WscUPnPCPHandleGetVar(sv_event->CtrlUrl, sv_event->StateVarName, sv_event->CurrentVal);
++				}
++
++				break;
++			}
++
++		/*
++			GENA Stuff 
++		*/
++		case UPNP_EVENT_RECEIVED:
++			{
++				struct Upnp_Event *e_event = (struct Upnp_Event *)Event;
++				
++				DBGPRINTF(RT_DBG_INFO, "Get event:UPNP_EVENT_RECEIVED!\n");
++				
++				WscUPnPCPHandleEvent(e_event->Sid, e_event->EventKey, e_event->ChangedVariables);
++				break;
++			}
++
++		case UPNP_EVENT_SUBSCRIBE_COMPLETE:
++		case UPNP_EVENT_UNSUBSCRIBE_COMPLETE:
++		case UPNP_EVENT_RENEWAL_COMPLETE:
++			{
++				struct Upnp_Event_Subscribe *es_event = (struct Upnp_Event_Subscribe *)Event;
++
++				if (es_event->ErrCode != UPNP_E_SUCCESS) 
++				{
++					DBGPRINTF(RT_DBG_ERROR, "Error in Event Subscribe Callback -- %d\n", es_event->ErrCode);
++				} else {
++					WscUPnPCPHandleSubscribeUpdate(es_event->PublisherUrl, es_event->Sid, es_event->TimeOut);
++                }
++
++				break;
++			}
++
++		case UPNP_EVENT_AUTORENEWAL_FAILED:
++		case UPNP_EVENT_SUBSCRIPTION_EXPIRED:
++			{
++				int TimeOut = DEF_SUBSCRIPTION_TIMEOUT;
++				Upnp_SID newSID;
++				int ret;
++
++				struct Upnp_Event_Subscribe *es_event = (struct Upnp_Event_Subscribe *)Event;
++
++				ret = UpnpSubscribe(WscCPHandle, es_event->PublisherUrl, &TimeOut, newSID);
++
++				if (ret == UPNP_E_SUCCESS) 
++				{
++					DBGPRINTF(RT_DBG_INFO, "Subscribed to EventURL with SID=%s\n", newSID);
++					WscUPnPCPHandleSubscribeUpdate(es_event->PublisherUrl, newSID, TimeOut);
++				} else {
++					DBGPRINTF(RT_DBG_ERROR, "Error Subscribing to EventURL -- %d\n", ret);
++				}
++				break;
++			}
++
++			/*
++				Ignore these cases, since this is not a device 
++			*/
++		case UPNP_EVENT_SUBSCRIPTION_REQUEST:
++		case UPNP_CONTROL_GET_VAR_REQUEST:
++		case UPNP_CONTROL_ACTION_REQUEST:
++			break;
++	}
++
++	return 0;
++}
++
++
++/********************************************************************************
++ * WscUPnPCPGetVar
++ *
++ * Description: 
++ *       Send a GetVar request to the specified service of a device.
++ *
++ * Parameters:
++ *   ipAddr -- The IP address of the device.
++ *   varname -- The name of the variable to request.
++ *
++ * Return:
++ *    UPNP_E_SUCCESS - if success
++ *    WSC_SYS_ERROR  - if failure
++ ********************************************************************************/
++int
++WscUPnPCPGetVar(
++	IN uint32 ipAddr,
++	IN char *varname)
++{
++	struct upnpDeviceNode *devnode;
++	int rc;
++
++	rc = WscUPnPCPGetDevice(ipAddr, &devnode);
++
++	if (rc == WSC_SYS_SUCCESS)
++	{
++		rc = UpnpGetServiceVarStatusAsync( WscCPHandle, devnode->device.services.ControlURL,
++                                           varname, WscUPnPCPDeviceHandler, NULL);
++		if( rc != UPNP_E_SUCCESS )
++		{
++			DBGPRINTF(RT_DBG_ERROR, "Error in UpnpGetServiceVarStatusAsync -- %d\n", rc);
++			rc = WSC_SYS_ERROR;
++		}
++	}
++
++	return rc;
++}
++
++
++#if 0
++int WscUPnPCPGetVarSampleCode(
++	IN int devnum)
++{
++    return WscUPnPCPGetVar(devnum, "Power");
++}
++#endif
++
++
++/********************************************************************************
++ * WscUPnPCPVerifyTimeouts
++ *
++ * Description: 
++ *       Checks the advertisement each device in the global device list. 
++ *		 If an advertisement expires, the device is removed from the list.
++ *		 If an advertisement is about to expire, a search request is sent 
++ *		 for that device.  
++ *
++ * Parameters:
++ *    incr -- The increment to subtract from the timeouts each time the
++ *            function is called.
++ *
++ * Return:
++ *    None
++ ********************************************************************************/
++void WscUPnPCPVerifyTimeouts(int incr)
++{
++	struct upnpDeviceNode *prevdevnode, *curdevnode;
++	int ret, timeLeft;
++
++	prevdevnode = NULL;
++	curdevnode = WscDeviceList;
++
++	while (curdevnode)
++	{
++		curdevnode->device.timeCount += incr;
++		timeLeft = curdevnode->device.AdvrTimeOut - curdevnode->device.timeCount;
++		
++		if (timeLeft <= 0)
++		{
++			/* This advertisement has expired, so we should remove the device from the list */
++			if (WscDeviceList == curdevnode)
++				WscDeviceList = curdevnode->next;
++			else
++				prevdevnode->next = curdevnode->next;
++			DBGPRINTF(RT_DBG_INFO, "%s(), delete the node(ipAddr=0x%08x)!\n", __FUNCTION__, curdevnode->device.ipAddr);
++			WscUPnPCPDeleteNode(curdevnode);
++			curdevnode = prevdevnode ? prevdevnode->next : WscDeviceList;
++		} else {
++			if (timeLeft < 3 * incr)
++			{
++				/*
++					This advertisement is about to expire, so send out a search request for this 
++					device UDN to try to renew
++				*/
++				ret = UpnpSearchAsync(WscCPHandle, incr, curdevnode->device.UDN, NULL);
++				if (ret != UPNP_E_SUCCESS)
++					DBGPRINTF(RT_DBG_ERROR, "Err sending SearchReq for Device UDN: %s -- err = %d\n", curdevnode->device.UDN, ret);
++			}
++
++			prevdevnode = curdevnode;
++			curdevnode = curdevnode->next;
++		}
++
++	}
++}
++
++
++/********************************************************************************
++ * WscUPnPCPHouseKeep
++ *
++ * Description: 
++ *       Function that runs in its own thread and monitors advertisement
++ *       and subscription timeouts for devices in the global device list.
++ *
++ * Parameters:
++ *    None
++ *  
++ * Return:
++ *    UPNP_E_SUCCESS - if success
++ *    WSC_SYS_ERROR  - if failure
++ ********************************************************************************/
++void *WscUPnPCPHouseKeep(void *args)
++{
++	int incr = 30;              // how often to verify the timeouts, in seconds
++
++	while(1)
++	{
++		sleep(incr);
++		WscUPnPCPVerifyTimeouts(incr);
++	}
++}
++
++
++/********************************************************************************
++ * WscUPnPCPRefresh
++ *
++ * Description: 
++ *       Clear the current wsc device list and issue new search
++ *	 requests to build it up again from scratch.
++ *
++ * Parameters:
++ *   None
++ *
++ * Return:
++ *    Always success
++ ********************************************************************************/
++int WscUPnPCPRefresh(void)
++{
++	int rc;
++
++	WscUPnPCPRemoveAll();
++
++	/*
++		Search for all devices of type Wsc UPnP Device version 1, 
++		waiting for up to 5 seconds for the response 
++	*/
++	rc = UpnpSearchAsync(WscCPHandle, 5, WscDeviceTypeStr, NULL);
++	if (rc != UPNP_E_SUCCESS)
++	{
++		DBGPRINTF(RT_DBG_ERROR, "Error sending search request%d\n", rc);
++		return WSC_SYS_ERROR;
++	}
++
++	return WSC_SYS_SUCCESS;
++}
++
++
++/******************************************************************************
++ * WscUPnPCPStop
++ *
++ * Description: 
++ *      Stop the UPnP Control Point, and remove all remote Device node.
++ *
++ * Parameters:
++ *		void
++ *   
++ * Return:
++ *    Always success
++ *****************************************************************************/
++int WscUPnPCPStop(void)
++{
++	WscUPnPCPRemoveAll();
++    UpnpUnRegisterClient(WscCPHandle);
++
++    return WSC_SYS_SUCCESS;
++}
++
++
++/******************************************************************************
++ * WscUPnPCPStart
++ *
++ * Description: 
++ *      Registers the UPnP Control Point, and sends out M-SEARCH.
++ *
++ * Parameters:
++ *
++ *   char *ipAddr 		 - ip address to initialize the Control Point Service.
++ *   unsigned short port - port number to initialize the control Point Service.
++ *   
++ * Return:
++ *    success - WSC_SYS_SUCCESS
++ *    failed  - WSC_SYS_ERROR
++ *****************************************************************************/
++int WscUPnPCPStart(
++	IN char *ipAddr,
++	IN unsigned short port)
++{
++	int rc;
++
++	DBGPRINTF(RT_DBG_INFO, "Registering Control Point...\n");
++	rc = UpnpRegisterClient(WscUPnPCPDeviceHandler, &WscCPHandle, &WscCPHandle);
++	if (rc != UPNP_E_SUCCESS)
++	{
++		DBGPRINTF(RT_DBG_ERROR, "Error registering CP: %d\n", rc);
++		
++		return WSC_SYS_ERROR;
++	}
++	DBGPRINTF(RT_DBG_INFO, "Control Point Registered\n");
++
++	WscUPnPCPRefresh();
++
++	// start a timer thread
++	if(rc == 0)
++	
++	return WSC_SYS_SUCCESS;
++
++}
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_upnp_cp.h
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_upnp_cp.h
+@@ -0,0 +1,9 @@
++/*
++	wsc upnp control point related structures
++
++*/
++#ifndef __WSC_UPNP_CP_H__
++#define __WSC_UPNP_CP_H__
++
++
++#endif
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_upnp_device.c
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_upnp_device.c
+@@ -0,0 +1,2225 @@
++///////////////////////////////////////////////////////////////////////////
++//
++// Copyright (c) 2000-2003 Mediatek Corporation 
++// All rights reserved. 
++//
++// Redistribution and use in source and binary forms, with or without 
++// modification, are permitted provided that the following conditions are met: 
++//
++// * Redistributions of source code must retain the above copyright notice, 
++// this list of conditions and the following disclaimer. 
++// * Redistributions in binary form must reproduce the above copyright notice, 
++// this list of conditions and the following disclaimer in the documentation 
++// and/or other materials provided with the distribution. 
++// * Neither name of Intel Corporation nor the names of its contributors 
++// may be used to endorse or promote products derived from this software 
++// without specific prior written permission.
++// 
++// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
++// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
++// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR 
++// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL INTEL OR 
++// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, 
++// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
++// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR 
++// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
++// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS 
++// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++//
++///////////////////////////////////////////////////////////////////////////
++
++#include <stdio.h>
++#include <signal.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include "upnphttp.h"
++#include "upnpevents.h"
++#include "upnpglobalvars.h"
++#include "wsc_msg.h"
++#include "wsc_common.h"
++#include "wsc_ioctl.h"
++#include "wsc_upnp.h"
++#include "wsc_upnp_device.h"
++
++#include "upnpreplyparse.h"/* for struct NameValueParserData */
++
++
++//#include "sample_util.h"
++//#include "ThreadPool.h"
++//#include "service_table.h"
++//#include "upnpapi.h"
++//#include "ssdplib.h"
++
++#if 0 //Mediatek :  move to upnphttp.h
++#define DO_NOTHING_IN_MAIN_LOOP	3
++#endif
++
++#define UUID_STR_LEN            36	
++#define WSC_UPNP_UUID_STR_LEN	(5 + UUID_STR_LEN + 1)	// The UUID string get from the driver by ioctl and the strlen is 36 plus 1 '\0', 
++						        // and we need extra 5 bytes for prefix string "uuid:"
++
++struct upnpCPNode *WscCPList = NULL;
++
++int wscDevHandle = -1;	// Device handle of "wscLocalDevice" supplied by UPnP SDK.
++
++/* The amount of time (in seconds) before advertisements will expire */
++int defAdvrExpires = 100;
++
++
++/* 
++	Structure for storing Wsc Device Service identifiers and state table 
++*/
++#define WSC_ACTION_COUNTS		13
++#define WSC_ACTION_MAXCOUNT		WSC_ACTION_COUNTS
++
++typedef int (*upnp_action) (IXML_Document *request, uint32 ipAddr, IXML_Document **out, char **errorString);
++
++struct WscDevActionList {
++  char *actionNames[WSC_ACTION_COUNTS];
++  upnp_action actionFuncs[WSC_ACTION_COUNTS];
++};
++
++struct WscDevActionList wscDevActTable;
++
++
++//static char *wscStateVarName[] = {"WLANEvent", "APStatus", "STAStatus"};
++static char wscStateVarCont[WSC_STATE_VAR_COUNT][WSC_STATE_VAR_MAX_STR_LEN];
++
++static char *wscStateVarDefVal[] = {"", "0", "0"};
++
++char wscAckMsg[]= {0x10, 0x4a, 0x00, 0x01, 0x10, 0x10, 0x22, 0x00, 0x01, 0x0d, 0x10, 0x1a, 0x00, 0x10, 0x00, 0x00,
++				   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x39, 
++				   0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
++				   0x00, 0x00};
++
++
++typedef enum _WSC_EVENT_STATUS_CODE{
++	WSC_EVENT_STATUS_CONFIG_CHANGED = 0x00000001,
++	WSC_EVENT_STATUS_AUTH_THRESHOLD_REACHED = 0x00000010,
++}WSC_EVENT_STATUS_CODE;
++
++typedef enum _WSC_EVENT_WLANEVENTTYPE_CODE{
++	WSC_EVENT_WLANEVENTTYPE_PROBE = 1,
++	WSC_EVENT_WLANEVENTTYPE_EAP = 2,
++}WSC_EVENT_WLANEVENTTYPE_CODE;
++
++
++int senderID = 1;
++char CfgMacStr[18]={0};
++
++#ifdef ENABLE_WSC_SERVICE
++/************************************************************************
++* Function : addToAction											
++*																	
++* Parameters:														
++*	IN int response: flag to tell if the ActionDoc is for response 
++*					or request
++*	INOUT IXML_Document **ActionDoc: request or response document
++*	IN char *ActionName: Name of the action request or response
++*	IN char *ServType: Service type
++*	IN char * ArgName: Name of the argument
++*	IN char * ArgValue: Value of the argument
++*
++* Description:		
++*	This function adds the argument in the action request or response. 
++* This function creates the action request or response if it is a first
++* argument else it will add the argument in the document
++*
++* Returns: int
++*	returns 0 if successful else returns appropriate error
++***************************************************************************/
++int
++addToAction( IN int response,
++             INOUT IXML_Document * ActionDoc,
++             IN const char *ActionName,
++             IN const char *ServType,
++             IN const char *ArgName,
++             IN const char *ArgValue )
++{
++    int rc = 0;
++	int buffer_size = 2000;
++
++    if( ActionName == NULL || ServType == NULL )
++	{
++        return -1;
++    }
++
++	*ActionDoc = malloc(buffer_size);
++	
++	if (*ActionDoc == NULL)
++	{
++		printf("malloc failed in addToAction()\n");
++        return -1;
++	}
++
++	memset(*ActionDoc, 0x00, buffer_size);
++	
++    if(response)
++	{
++		if (ArgName != NULL)
++		{
++		        sprintf( *ActionDoc,
++		                 "<u:%sResponse xmlns:u=\"%s\"><%s>%s</%s></u:%sResponse>",
++		                 ActionName, ServType, ArgName, ArgValue, ArgName, ActionName);
++		}
++		else
++		{
++		        sprintf( *ActionDoc,
++		                 "<u:%sResponse xmlns:u=\"%s\"></u:%sResponse>",
++		                 ActionName, ServType, ActionName);
++		}
++    } 
++	else
++	{
++        sprintf( *ActionDoc, "<u:%s xmlns:u=\"%s\"></u:%s>",
++                 ActionName, ServType, ActionName );
++    }
++    return rc;
++}
++
++/************************************************************************
++* Function : UpnpAddToActionResponse									
++*																	
++* Parameters:
++*	INOUT IXML_Document **ActionResponse: action response document	
++*	IN char * ActionName: Name of the action request or response
++*	IN char * ServType: Service type
++*	IN int ArgName :Name of argument to be added in the action response
++*	IN char * ArgValue : value of the argument
++*
++* Description:		
++*	This function adds the argument in the action response. Its a wrapper 
++* function that calls addToAction function to add the argument in the 
++* action response.
++*
++* Returns: int
++*	returns 0 if successful 
++*	else returns appropriate error
++***************************************************************************/
++int
++UpnpAddToActionResponse( INOUT IXML_Document * ActionResponse,
++                         IN const char *ActionName,
++                         IN const char *ServType,
++                         IN const char *ArgName,
++                         IN const char *ArgValue )
++{
++    return addToAction( 1, ActionResponse, ActionName, ServType, ArgName,
++                        ArgValue );
++}
++
++/************************************************************************
++* Function : UpnpAddToAction									
++*																	
++* Parameters:
++*	INOUT IXML_Document **ActionDoc: action request document	
++*	IN char * ActionName: Name of the action request or response
++*	IN char * ServType: Service type
++*	IN int ArgName :Name of argument to be added in the action response
++*	IN char * ArgValue : value of the argument
++*
++* Description:		
++*	This function adds the argument in the action request. Its a wrapper 
++* function that calls addToAction function to add the argument in the 
++* action request.
++*
++* Returns: int
++*	returns 0 if successful 
++*	else returns appropriate error
++***************************************************************************/
++int
++UpnpAddToAction( INOUT IXML_Document * ActionDoc,
++                 const char *ActionName,
++                 const char *ServType,
++                 const char *ArgName,
++                 const char *ArgValue )
++{
++
++    return addToAction( 0, ActionDoc, ActionName, ServType, ArgName,
++                        ArgValue );
++}
++#endif /* ENABLE_WSC_SERVICE */
++
++
++/******************************************************************************
++ * wscU2KMsgCreate
++ *
++ * Description: 
++ *       Allocate the memory and copy the content to the buffer.
++ *
++ * Parameters:
++ *    char **dstPtr - pointer used for refer the allocated U2Kmsg.
++ *    char *srcPtr  - the message need to copy into the U2KMsg.
++ *    int 	msgLen  - length of the message "srcPtr".
++ *    int	EAPType - the EAP message type. 
++ *    				 			1=Identity, 0xFE=reserved, used by WSC
++ * Return Value:
++ *    Total length of created U2KMsg
++ *    	zero 	- if failure
++ *    	others  - if success 
++ *****************************************************************************/
++int 
++wscU2KMsgCreate(
++	INOUT char **dstPtr,
++	IN char *srcPtr,
++	IN int msgLen,
++	IN int EAPType)
++{
++	int totalLen;
++	char *pPos = NULL, *pMsgPtr = NULL;
++	RTMP_WSC_U2KMSG_HDR *pU2KMsgHdr; 
++	IEEE8021X_FRAME *p1xFrameHdr;
++	EAP_FRAME	*pEAPFrameHdr;
++		
++	/* Allocate the msg buffer and fill the content */
++	totalLen = sizeof(RTMP_WSC_U2KMSG_HDR) + msgLen;
++	if ((pMsgPtr = malloc(totalLen)) != NULL)
++	{
++		memset(pMsgPtr , 0, totalLen);
++		pU2KMsgHdr = (RTMP_WSC_U2KMSG_HDR *)pMsgPtr;
++		
++		// create the IEEE8021X_FRAME header
++		p1xFrameHdr = &pU2KMsgHdr->IEEE8021XHdr;
++		p1xFrameHdr->Version = IEEE8021X_FRAME_VERSION;
++		p1xFrameHdr->Length = htons(sizeof(EAP_FRAME) + msgLen);
++		p1xFrameHdr->Type = IEEE8021X_FRAME_TYPE_EAP;
++
++		// create the EAP header
++		pEAPFrameHdr = &pU2KMsgHdr->EAPHdr;
++		pEAPFrameHdr->Code = EAP_FRAME_CODE_RESPONSE;
++		pEAPFrameHdr->Id = 1;  // The Id field is useless here.
++		pEAPFrameHdr->Type = EAPType;
++		pEAPFrameHdr->Length = htons(sizeof(EAP_FRAME) + msgLen);
++
++		//copy the msg payload
++		pPos = (char *)(pMsgPtr + sizeof(RTMP_WSC_U2KMSG_HDR));
++		memcpy(pPos, srcPtr, msgLen);
++		*dstPtr = pMsgPtr;
++		DBGPRINTF(RT_DBG_INFO, "create U2KMsg success!MsgLen = %d, headerLen=%d! totalLen=%d!\n", msgLen, sizeof(RTMP_WSC_U2KMSG_HDR), totalLen);
++	} else {
++		DBGPRINTF(RT_DBG_INFO, "malloc allocation(size=%d) failed in wscU2KMsgCreate()!\n", totalLen);
++		totalLen = 0;
++	}
++
++	return totalLen;
++}
++
++
++/*---------------------------action handler---------------------------*/
++
++/******************************************************************************
++ * WscDevGetAPSettings
++ *
++ * Description: 
++ *       Wsc Service action callback used to get the AP's settings.
++ *
++ * Parameters:
++ *    
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevGetAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++    IXML_Document * out,
++    OUT char **errorString )
++{
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "GetAPSettings", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++
++}
++
++
++/******************************************************************************
++ * WscDevGetSTASettings
++ *
++ * Description: 
++ *      Wsc Service action callback used to get the STA's settings.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevGetSTASettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "GetSTASettings", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++
++}
++
++/******************************************************************************
++ * WscDevSetAPSettings
++ *
++ * Description: 
++ *       Wsc Service action callback used to set the AP's settings.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevSetAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "SetAPSettings", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++
++}
++
++
++/******************************************************************************
++ * WscDevDelAPSettings
++ *
++ * Description: 
++ *       Wsc Service action callback used to delete the AP's settings.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevDelAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "DelAPSettings", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++
++}
++
++
++/******************************************************************************
++ * WscDevSetSTASettings
++ *
++ * Description: 
++ *       Wsc Service action callback used to set the STA's settings.
++ *
++ * Parameters:
++ *  
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevSetSTASettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "SetSTASettings", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++
++}
++
++
++/******************************************************************************
++ * WscDevRebootAP
++ *
++ * Description: 
++ *       Wsc Service action callback used to reboot the AP.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevRebootAP(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "RebootAP", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++
++}
++
++
++/******************************************************************************
++ * WscDevResetAP
++ *
++ * Description: 
++ *       Wsc Service action callback used to reset the AP device to factory default config.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int 
++WscDevResetAP(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "ResetAP", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++}
++
++
++/******************************************************************************
++ * WscDevRebootSTA
++ *
++ * Description: 
++ *       Wsc Service action callback used to reboot the STA.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevRebootSTA(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	// TODO: Need to complete it, currently do nothing and return directly.
++	
++	//create a response	
++	if(UpnpAddToActionResponse(out, "RebootSTA", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		(*out) = NULL;
++		(*errorString) = "Internal Error";
++		
++		return -1;
++	}
++	
++	return 0;
++}
++
++
++/******************************************************************************
++ * WscDevResetSTA
++ *
++ * Description: 
++ *       Wsc Service action callback used to reset the STA to factory default value.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 		- if success
++ *    others 				- if failure
++ *****************************************************************************/
++int
++WscDevResetSTA(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	
++	// TODO: Need to complete it, currently do nothing and return directly.
++
++	//create a response	
++	if(UpnpAddToActionResponse(out, "ResetSTA", WscServiceTypeStr, NULL, NULL) != 0)
++	{
++		( *out ) = NULL;
++		( *errorString ) = "Internal Error";
++		
++		return -1;
++	}
++	return 0;
++
++}
++
++
++/******************************************************************************
++ * WscDevSetSelectedRegistrar
++ *
++ * Description: 
++ *       This action callback used to receive a SetSelectedRegistar message send by
++ *       contorl Point(Registrar). 
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 - if success
++ *    others - if failure
++ *****************************************************************************/
++int WscDevSetSelectedRegistrar(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	char *inStr = NULL;
++	unsigned char *decodeStr = NULL;
++	int decodeLen, retVal = -1;
++	int inStrLen=0;	
++
++	(*out) = NULL;
++	(*errorString) = NULL;
++
++	inStr = WSCGetValueFromNameValueList((char *)(h->req_buf + h->req_contentoff), "NewMessage", &inStrLen);
++	ASSERT(inStrLen > 0);
++	if (!inStr)
++	{
++		(*errorString) = "Invalid SetSelectedRegistrar mesg parameter";
++		SoapError(h, 402, "Invalid Args");		
++		return -1;
++	}
++	decodeLen = ILibBase64Decode((unsigned char *)inStr, inStrLen, &decodeStr);
++	if (decodeLen == 0 || decodeStr == NULL)
++	{
++		goto done;
++	}
++#ifdef RT_DEBUG
++	wsc_hexdump("WscDevSetSelectedRegistrar", (char *)decodeStr, decodeLen);
++#endif
++	/* Now send ioctl to wireless driver to set the ProbeReponse bit field. */
++	if (ioctl_sock >= 0)
++		retVal = wsc_set_oid(RT_OID_WSC_SET_SELECTED_REGISTRAR, (char *)decodeStr, decodeLen);
++
++	if (retVal != 0)
++		goto done;
++	
++	/*
++		Send UPnP repsone to remote UPnP device controller 
++	*/
++	retVal = UpnpAddToActionResponse(out, "SetSelectedRegistrar", WscServiceTypeStr, NULL, NULL);
++	if (retVal != 0)
++	{
++		retVal = -1;
++	}
++	else
++	{
++		BuildSendAndCloseSoapResp(h, *out, strlen(*out));
++		if (*out != NULL)
++		{
++			free(*out);
++		}
++	}
++done:
++	if (inStr)
++	{
++//		free(inStr);
++	}
++	if (decodeStr)
++		free(decodeStr);
++
++	if (retVal != 0)
++		(*errorString) = "Internal Error";
++	
++	return 0;
++	
++}
++
++
++/******************************************************************************
++ * WscDevPutWLANResponse
++ *
++ * Description: 
++ *      When Device in Proxy Mode, the Registrar will use this Action response 
++ *      the M2/M2D, M4, M6, and M8 messages.
++ *
++ * Parameters:
++ *   
++ *    IXML_Document * in -  action request document
++ *    IXML_Document **out - action result document
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *  
++ * Return:
++ *    0 - if success
++ *    -1 - if failure
++ *****************************************************************************/
++int
++WscDevPutWLANResponse(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	char *inStr = NULL;
++	unsigned char *decodeStr = NULL;
++	int decodeLen, retVal = -1;
++	
++	char *pWscU2KMsg = NULL;
++	RTMP_WSC_U2KMSG_HDR *msgHdr = NULL;
++	int wscU2KMsgLen;
++	int inStrLen=0;	
++
++	(*out) = NULL;
++	(*errorString) = NULL;
++
++	inStr = WSCGetValueFromNameValueList((char *)(h->req_buf + h->req_contentoff), "NewMessage", &inStrLen);
++	ASSERT(inStrLen > 0);
++	if (!inStr)
++	{
++		(*errorString) = "Invalid PutWLANResponse mesg";
++		SoapError(h, 402, "Invalid Args");		
++		return retVal;
++	}
++	decodeLen = ILibBase64Decode((unsigned char *)inStr, inStrLen, &decodeStr);
++	if (decodeLen == 0 || decodeStr == NULL)
++	{
++		goto done;
++	}
++	
++	/* Prepare the msg buffers */
++	wscU2KMsgLen = wscU2KMsgCreate(&pWscU2KMsg, (char *)decodeStr, decodeLen, EAP_FRAME_TYPE_WSC);
++	if (wscU2KMsgLen == 0)
++		goto done;
++
++	// Fill the sessionID, Addr1, and Adde2 to the U2KMsg buffer header.
++	msgHdr = (RTMP_WSC_U2KMSG_HDR *)pWscU2KMsg;
++	msgHdr->envID = 0;
++
++	memcpy(msgHdr->Addr1, HostMacAddr, MAC_ADDR_LEN);
++	memcpy(msgHdr->Addr2, &ipAddr, sizeof(unsigned int));
++	
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to send pWscU2KMsg(len=%d) to kernel by ioctl(%d)!\n", __FUNCTION__, 
++				wscU2KMsgLen, ioctl_sock);
++
++	wsc_hexdump("U2KMsg", pWscU2KMsg, wscU2KMsgLen);
++	
++	// Now send the msg to kernel space.
++	if (ioctl_sock >= 0)
++		retVal = wsc_set_oid(RT_OID_WSC_EAPMSG, (char *)pWscU2KMsg, wscU2KMsgLen);
++
++	// Waiting for the response from the kernel space.
++	DBGPRINTF(RT_DBG_INFO, "ioctl retval=%d! senderID=%d!\n", retVal, senderID);
++	if(retVal == 0)
++	{
++		retVal = UpnpAddToActionResponse(out, "PutWLANResponse", WscServiceTypeStr, NULL, NULL);
++	}
++	BuildSendAndCloseSoapResp(h, *out, strlen(*out));
++
++	if (*out != NULL)
++	{
++		free(*out);
++	}
++done:
++
++	if (inStr)
++	{
++//		free(inStr);
++	}
++	if (decodeStr)
++		free(decodeStr);
++	if (pWscU2KMsg)
++		free(pWscU2KMsg);
++	
++	if (retVal == 0)
++		return 0;
++	else {
++		(*errorString) = "Internal Error";
++		return -1;
++	}
++}
++
++
++/******************************************************************************
++ * WscDevPutMessageResp
++ *
++ * Description: 
++ *       This action used by Registrar send WSC_MSG(M2,M4,M6, M8) to Enrollee.
++ *
++ * Parameters:
++ *    
++ *    IXML_Document * in - document of action request
++ *    IXML_Document **out - action result
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *
++ * Return:
++ *    0 - if success
++ *    -1 - if failure
++ *****************************************************************************/
++int 
++WscDevPutMessageResp(
++	IN WscEnvelope *msgEnvelope)
++{
++	int retVal= -1;
++	char *pWscU2KMsg = NULL;
++	char *out = NULL; 
++	struct upnphttp * h = msgEnvelope->h;
++
++
++	DBGPRINTF(RT_DBG_INFO, "Got msg from netlink! envID=0x%x!\n", msgEnvelope->envID);
++
++#if 0
++	( out ) = malloc(2500);
++#endif
++	if ((msgEnvelope->flag != WSC_ENVELOPE_SUCCESS) || 
++		(msgEnvelope->pMsgPtr == NULL) || 
++		(msgEnvelope->msgLen == 0))
++	{
++		goto done;
++	}
++
++	// Response the msg from state machine back to the remote UPnP control device.
++	if (msgEnvelope->pMsgPtr)
++	{
++		unsigned char *encodeStr = NULL;
++		RTMP_WSC_MSG_HDR *rtmpHdr = NULL;		
++		int len;
++
++		DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(len=%d)!\n", __FUNCTION__, msgEnvelope->msgLen);
++		wsc_hexdump("WscDevPutMessage-K2UMsg", msgEnvelope->pMsgPtr, msgEnvelope->msgLen);
++		
++		rtmpHdr = (RTMP_WSC_MSG_HDR *)(msgEnvelope->pMsgPtr);
++	
++		if(rtmpHdr->msgType == WSC_OPCODE_UPNP_CTRL || rtmpHdr->msgType == WSC_OPCODE_UPNP_MGMT)
++		{
++			DBGPRINTF(RT_DBG_INFO, "Receive a UPnP Ctrl/Mgmt Msg!\n");
++			goto done;
++		}
++		
++		if(rtmpHdr->msgSubType == WSC_UPNP_DATA_SUB_ACK)
++		{
++			retVal = UpnpAddToActionResponse(&out, "PutMessage", WscServiceTypeStr, NULL, NULL);
++		}
++		else 
++		{
++			len = ILibBase64Encode((unsigned char *)(msgEnvelope->pMsgPtr + sizeof(RTMP_WSC_MSG_HDR)), 
++									rtmpHdr->msgLen, &encodeStr);
++			if (len >0)
++				retVal = UpnpAddToActionResponse(&out, "PutMessage", WscServiceTypeStr, 
++													"NewOutMessage", (char *)encodeStr);
++			if (encodeStr != NULL)
++				free(encodeStr);
++		}
++		
++		if (out)
++			BuildSendAndCloseSoapResp(h, out, strlen(out));
++	} 
++
++done:
++        if (out != NULL)
++        {
++              free(out);
++        }
++
++	if (pWscU2KMsg)
++		free(pWscU2KMsg);
++	wscEnvelopeFree(msgEnvelope);
++	if (retVal == 0)
++	{
++		return retVal;
++	}
++	else
++	{
++		return -1;
++	}
++}
++
++
++
++/******************************************************************************
++ * WscDevPutMessage
++ *
++ * Description: 
++ *       This action used by Registrar request WSC_MSG(M2,M4,M6, M8) from WIFI driver to Enrollee.
++ *
++ * Parameters:
++ *    
++ *    IXML_Document * in - document of action request
++ *    IXML_Document **out - action result
++ *    char **errorString - errorString (in case action was unsuccessful)
++ *
++ * Return:
++ *    0 - if success
++ *    -1 - if failure
++ *****************************************************************************/
++int 
++WscDevPutMessage(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	char *inStr = NULL;
++	int inStrLen=0;
++	unsigned char *decodeStr = NULL;
++	int decodeLen, retVal = -1;
++	
++	char *pWscU2KMsg = NULL;
++	RTMP_WSC_U2KMSG_HDR *msgHdr = NULL;
++	WscEnvelope *msgEnvelope = NULL;
++	int wscU2KMsgLen;
++	int msgQIdx = -1;
++
++	(*out) = NULL;
++	(*errorString) = NULL;
++
++	inStr = WSCGetValueFromNameValueList((char *)(h->req_buf + h->req_contentoff), "NewInMessage", &inStrLen);
++	ASSERT(inStrLen > 0);
++	if (!inStr)
++	{
++		(*errorString) = "Invalid PutMessage mesg";
++		SoapError(h, 402, "Invalid Args");		
++		return retVal;
++	}
++	decodeLen = ILibBase64Decode((unsigned char *)inStr, inStrLen, &decodeStr);
++	if (decodeLen == 0 || decodeStr == NULL)
++	{
++		goto done;
++	}
++
++	/* Prepare the msg buffers */
++	wscU2KMsgLen = wscU2KMsgCreate(&pWscU2KMsg, (char *)decodeStr, decodeLen, EAP_FRAME_TYPE_WSC);
++	if (wscU2KMsgLen == 0)
++		goto done;
++
++	/* Prepare the msg envelope */
++	if ((msgEnvelope = wscEnvelopeCreate()) == NULL)
++		goto done;
++	
++	/* Lock the msgQ and check if we can get a valid mailbox to insert our request! */
++	if(wscMsgQInsert(msgEnvelope, &msgQIdx)!= WSC_SYS_SUCCESS)
++	{
++		goto done;
++	}
++
++	/* log the socket ID and callback in the msgEnvelope */
++	msgEnvelope->h = h;
++	msgEnvelope->DevCallBack = WscDevPutMessageResp;
++	
++	// Fill the sessionID, Addr1, and Adde2 to the U2KMsg buffer header.
++	msgHdr = (RTMP_WSC_U2KMSG_HDR *)pWscU2KMsg;
++	msgHdr->envID = msgEnvelope->envID;
++	memcpy(msgHdr->Addr1, HostMacAddr, MAC_ADDR_LEN);
++	memcpy(msgHdr->Addr2, &ipAddr, sizeof(unsigned int));
++	
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to send pWscU2KMsg(len=%d) to kernel by ioctl(%d)!\n", __FUNCTION__, 
++				wscU2KMsgLen, ioctl_sock);
++	wsc_hexdump("U2KMsg", pWscU2KMsg, wscU2KMsgLen);
++	
++	// Now send the msg to kernel space.
++	if (ioctl_sock >= 0)
++		retVal = wsc_set_oid(RT_OID_WSC_EAPMSG, (char *)pWscU2KMsg, wscU2KMsgLen);
++
++	if (retVal == 0)
++	{
++		/* let main loop do nothing about the current http exchange */
++		
++		#if 1 //Mediatek : porting for miniupnpd 1.6
++		h->state = DO_NOTHING_IN_MAIN_LOOP;
++		#else
++		h->state = 3;		
++		#endif
++
++		// Waiting for the response from the kernel space.
++		DBGPRINTF(RT_DBG_INFO, "%s():ioctl to kernel success, waiting for condition!\n", __FUNCTION__);
++
++		if (inStr)
++//			free(inStr);// I have no right to free this pointer, because the buffer is not alloc by me.
++		if (decodeStr)
++			free(decodeStr);
++		if (pWscU2KMsg)
++			free(pWscU2KMsg);
++		return retVal;
++	}
++	else
++	{
++		DBGPRINTF(RT_DBG_INFO, "%s():ioctl to kernel failed, retVal=%d, goto done!\n", __FUNCTION__, retVal);
++		wscMsgQRemove(Q_TYPE_PASSIVE, msgQIdx);
++		goto done;
++	}
++
++done:
++	if (inStr)
++	{
++//		free(inStr);// I have no right to free this pointer, because the buffer is not alloc by me.
++	}
++	if (decodeStr)
++		free(decodeStr);
++	if (pWscU2KMsg)
++		free(pWscU2KMsg);
++
++	wscEnvelopeFree(msgEnvelope);
++
++	if (retVal == 0)
++	{
++		return retVal;
++	}
++	else
++	{
++		(*errorString) = "Internal Error";
++		return -1;
++	}
++}
++
++
++/******************************************************************************
++ * WscDevGetDeviceInfoResp
++ *
++ * Description: 
++ *       This action callback used to send AP's M1 message to the Control Point(Registrar).
++ *
++ * Parameters:
++ *
++ *    WscEnvelope *msgEnvelope  - response from wifi driver of action request
++ *    
++ *    
++ *    
++ *
++ * Return:
++ *    0 - if success
++ *    -1 - if failure
++ *****************************************************************************/
++int
++WscDevGetDeviceInfoResp(
++	IN WscEnvelope *msgEnvelope)
++{
++	int retVal= -1;
++	char *pWscU2KMsg = NULL;
++	char *out = NULL; 
++	struct upnphttp * h = msgEnvelope->h;
++
++	DBGPRINTF(RT_DBG_INFO, "(%s):Got msg from netlink! envID=0x%x, flag=%d!\n", 
++				__FUNCTION__, msgEnvelope->envID, msgEnvelope->flag);
++
++#if 0
++	( out ) = malloc(2500);
++#endif
++
++	if ((msgEnvelope->flag != WSC_ENVELOPE_SUCCESS) || 
++		(msgEnvelope->pMsgPtr == NULL) || 
++		(msgEnvelope->msgLen == 0))
++	{
++		goto done;
++	}
++
++	// Response the msg from state machine back to the remote UPnP control device.
++	if (msgEnvelope->pMsgPtr)
++	{
++		unsigned char *encodeStr = NULL;
++		RTMP_WSC_MSG_HDR *rtmpHdr = NULL;		
++		int len;
++
++		rtmpHdr = (RTMP_WSC_MSG_HDR *)(msgEnvelope->pMsgPtr);
++		DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(TotalLen=%d, headerLen=%d)!\n", __FUNCTION__, 
++						msgEnvelope->msgLen, sizeof(RTMP_WSC_MSG_HDR));
++		DBGPRINTF(RT_DBG_INFO, "\tMsgType=%d!\n" 
++								"\tMsgSubType=%d!\n"
++								"\tipAddress=0x%x!\n"
++								"\tMsgLen=%d!\n",
++								rtmpHdr->msgType, rtmpHdr->msgSubType, rtmpHdr->ipAddr, rtmpHdr->msgLen);
++		
++		if(rtmpHdr->msgType == WSC_OPCODE_UPNP_CTRL || rtmpHdr->msgType == WSC_OPCODE_UPNP_MGMT)
++		{
++			DBGPRINTF(RT_DBG_INFO, "Receive a UPnP Ctrl/Mgmt Msg!\n");
++			goto done;
++		}
++		wsc_hexdump("WscDevGetDeviceInfoResp-K2UMsg", msgEnvelope->pMsgPtr, msgEnvelope->msgLen);
++		
++		if(rtmpHdr->msgSubType == WSC_UPNP_DATA_SUB_ACK)
++		{
++			retVal = UpnpAddToActionResponse(&out, "GetDeviceInfo", WscServiceTypeStr, NULL, NULL);
++		}
++		else
++		{
++			len = ILibBase64Encode((unsigned char *)(msgEnvelope->pMsgPtr + sizeof(RTMP_WSC_MSG_HDR)), 
++									rtmpHdr->msgLen, &encodeStr);
++
++			if (len > 0)
++			{
++				retVal = UpnpAddToActionResponse(&out, "GetDeviceInfo", WscServiceTypeStr, 
++												"NewDeviceInfo", (char *)encodeStr);
++			}
++
++			if (encodeStr != NULL)
++				free(encodeStr);
++		}
++
++		if (out)
++			BuildSendAndCloseSoapResp(h, out, strlen(out));
++	} 
++
++done:
++	if (out != NULL)
++	{
++	    free(out);
++	}
++
++	if (pWscU2KMsg)
++		free(pWscU2KMsg);
++	
++	wscEnvelopeFree(msgEnvelope);
++	
++	if (retVal == 0)
++	{
++		return retVal;
++	}
++	else
++	{
++		return -1;
++	}
++
++}
++
++	
++/******************************************************************************
++ * WscDevGetDeviceInfo
++ *
++ * Description: 
++ *       This action callback used to send AP's M1 message to the Control Point(Registrar).
++ *
++ * Parameters:
++ *
++ *    IXML_Document * in  - document of action request
++ *    uint32 ipAddr       - ipAddr,
++ *    IXML_Document **out - action result
++ *    char **errorString  - errorString (in case action was unsuccessful)
++ *
++ * Return:
++ *    0 - if success
++ *    -1 - if failure
++ *****************************************************************************/
++int
++WscDevGetDeviceInfo(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString)
++{
++	char UPnPIdentity[] = {"WFA-SimpleConfig-Registrar"};
++	int retVal= -1;
++	char *pWscU2KMsg = NULL;
++	WscEnvelope *msgEnvelope = NULL;
++	RTMP_WSC_U2KMSG_HDR *msgHdr = NULL;
++	int wscU2KMsgLen;
++	int msgQIdx = -1;
++	
++	
++	DBGPRINTF(RT_DBG_INFO, "Receive a GetDeviceInfo msg from Remote Upnp Control Point!\n");
++	
++#if 0
++	( out ) = NULL;
++#endif
++	( *errorString ) = NULL;
++
++	/* Prepare the msg buffers */
++	wscU2KMsgLen = wscU2KMsgCreate(&pWscU2KMsg, UPnPIdentity, strlen(UPnPIdentity), EAP_FRAME_TYPE_IDENTITY);
++	if (wscU2KMsgLen == 0)
++		goto done;
++
++	/* Prepare the msg envelope */
++	if ((msgEnvelope = wscEnvelopeCreate()) == NULL)
++		goto done;
++	
++	/* Lock the msgQ and check if we can get a valid mailbox to insert our request! */
++	if (wscMsgQInsert(msgEnvelope, &msgQIdx) != WSC_SYS_SUCCESS)
++	{
++		goto done;
++	}
++
++	/* log the http info and callback at the msgEnvelope */
++	msgEnvelope->h = h;
++	msgEnvelope->DevCallBack = WscDevGetDeviceInfoResp;
++	
++	// Fill the sessionID, Addr1, and Adde2 to the U2KMsg buffer header.
++	msgHdr = (RTMP_WSC_U2KMSG_HDR *)pWscU2KMsg;
++	msgHdr->envID = msgEnvelope->envID;
++	memcpy(msgHdr->Addr1, HostMacAddr, MAC_ADDR_LEN);
++	memcpy(msgHdr->Addr2, &ipAddr, sizeof(int));
++	
++	// Now send the msg to kernel space.
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to send pWscU2KMsg(len=%d) to kernel by ioctl(%d)!\n", __FUNCTION__, 
++				wscU2KMsgLen, ioctl_sock);
++	wsc_hexdump("U2KMsg", pWscU2KMsg, wscU2KMsgLen);
++
++	if (ioctl_sock >= 0)
++		retVal = wsc_set_oid(RT_OID_WSC_EAPMSG, pWscU2KMsg, wscU2KMsgLen);
++	else
++		retVal = -1;
++	
++	if (retVal == 0)
++	{
++		/* let main loop do nothing about the current http exchange */
++		h->state = DO_NOTHING_IN_MAIN_LOOP;
++
++		// Waiting for the response from the kernel space.
++		DBGPRINTF(RT_DBG_INFO, "%s():ioctl to kernel success, waiting for response!\n", __FUNCTION__);
++
++		if (pWscU2KMsg)
++			free(pWscU2KMsg);
++		return retVal;
++	}
++	else
++	{
++		DBGPRINTF(RT_DBG_ERROR, "%s():ioctl to kernel failed, retVal=%d, goto done!\n", __FUNCTION__, retVal);
++		wscMsgQRemove(Q_TYPE_PASSIVE, msgQIdx);
++		goto done;
++	}
++
++	/* moved to WscDevGetDeviceInfoResp() */
++
++done:
++	if (pWscU2KMsg)
++		free(pWscU2KMsg);
++	
++	wscEnvelopeFree(msgEnvelope);
++	
++	if (retVal == 0)
++		return retVal;
++	else
++	{
++		(*errorString) = "Internal Error";
++		return -1;
++	}
++}
++/*---------------------------end of action handler---------------------------*/
++
++
++
++/******************************************************************************
++ * WscDevHandleActionReq
++ *
++ * Description: 
++ *       Called during an action request callback.  If the request is for the
++ *       Wsc device and match the ServiceID, then perform the action and respond.
++ *
++ * Parameters:
++ *   ca_event -- The "Upnp_Action_Request" structure
++ *
++ * Return:
++ *    
++ *****************************************************************************/
++static int
++WscDevHandleActionReq(IN struct upnphttp * h)
++{
++	return 0;
++}
++
++
++/******************************************************************************
++ * WscDevCPNodeInsert
++ *
++ * Description: 
++ *       Depends on the UDN String, service identifier and Subscription ID, find 
++ *		 the IP address of the remote Control Point. And insert the Control Point
++ *       into the "WscCPList".  
++ *
++ * NOTE: 
++ *		 Since this function blocks on the mutex WscDevMutex, to avoid a hang this 
++ *		 function should not be called within any other function that currently has 
++ *		 this mutex locked.
++ *
++ *		 Besides, this function use the internal data structure of libupnp-1.3.1 
++ *		 SDK, so if you wanna change the libupnp to other versions, please make sure
++ *		 the data structure refered in this function was not changed!
++ *
++ * Parameters:
++ *   UpnpDevice_Handle  - UpnpDevice handle of WscLocalDevice assigned by UPnP SDK.
++ *   char *UDN			- The UUID string of the Subscription requested.
++ *   char *servId 		- The service Identifier of the Subscription requested.
++ *   char *sid 			- The Subscription ID of the ControlPoint.
++ * 
++ * Return:
++ *   TRUE  - If success
++ *   FALSE - If failure
++ *****************************************************************************/
++static int 
++WscDevCPNodeInsert(
++	IN int device_handle,
++	IN const char *sid)
++{
++//	struct Handle_Info *handle_info;
++	int found = 0;
++	struct upnpCPNode *CPNode, *newCPNode;
++	
++	HandleLock();
++
++	CPNode = WscCPList;
++	while(CPNode)
++	{
++		if (strcmp(CPNode->device.SID, sid) == 0)
++		{
++			found = 1;
++			break;
++		}
++		CPNode = CPNode->next;
++	}
++
++	if (found)
++	{
++		strncpy(CPNode->device.SID, sid, NAME_SIZE);
++	}
++	else
++	{
++		// It's a new subscriber, insert it.
++		if ((newCPNode = malloc(sizeof(struct upnpCPNode))) != NULL)
++		{
++			memset(newCPNode, 0, sizeof(struct upnpCPNode));
++			strncpy(newCPNode->device.SID, sid, NAME_SIZE);
++			newCPNode->next = NULL;
++
++			if(WscCPList)
++			{
++				newCPNode->next = WscCPList->next;
++				WscCPList->next = newCPNode;
++			}
++			else
++			{
++				WscCPList = newCPNode;
++			}
++		}
++		else 
++		{
++			goto Fail;
++		}
++	}
++
++	HandleUnlock();
++	DBGPRINTF(RT_DBG_INFO, "Insert ControlPoint success!\n");
++		
++	return TRUE;
++
++Fail:
++	
++	HandleUnlock();
++	DBGPRINTF(RT_DBG_ERROR, "Insert ControlPoint failed!\n");	
++	return FALSE;
++}
++
++
++
++/******************************************************************************
++ * WscDevCPNodeSearch
++ *
++ * Description: 
++ *   Search for specific Control Point Node by ip address in WscCPList
++ *
++ * Parameters:
++ *   unsigned int ipAddr - ip address of the contorl point we want to seach.
++ *   char *sid           - used to copy the SID string
++ *
++ * Return:
++ *   1 - if found
++ *   0 - if not found
++ *****************************************************************************/
++static int 
++WscDevCPNodeSearch(
++	IN unsigned int ipAddr,
++	OUT char **strSID)
++{
++	struct upnpCPNode *CPNode;
++	int found = 0;
++	
++	
++	CPNode = WscCPList;
++	while (CPNode)
++	{
++		if(CPNode->device.ipAddr == ipAddr)
++		{
++			*strSID = strdup(CPNode->device.SID);
++			found = 1;
++			break;
++		}
++		CPNode = CPNode->next;
++	}
++
++	return found;
++}
++
++
++/******************************************************************************
++ * WscDevCPListRemoveAll
++ *
++ * Description: 
++ *   Remove all Control Point Node in WscCPList
++ *
++ * Parameters:
++ *   None
++ *
++ * Return:
++ *   TRUE
++ *****************************************************************************/
++static int WscDevCPListRemoveAll(void)
++{
++	struct upnpCPNode *CPNode;
++
++	while((CPNode = WscCPList))
++	{
++		WscCPList = CPNode->next;
++		free(CPNode);
++	}
++	
++	return TRUE;
++}
++
++/******************************************************************************
++ * WscDevCPNodeRemove
++ *
++ * Description: 
++ *       Remove the ControlPoint Node in WscCPList depends on the subscription ID.
++ *
++ * Parameters:
++ *   char *SID - The subscription ID of the ControlPoint will be deleted
++ * 
++ * Return:
++ *   TRUE  - If success
++ *   FALSE - If failure
++ *****************************************************************************/
++int WscDevCPNodeRemove(IN char *SID)
++{
++	struct upnpCPNode *CPNode, *prevNode = NULL;
++	
++	CPNode = prevNode = WscCPList;
++
++	if(strcmp(WscCPList->device.SID, SID) == 0)
++	{
++		WscCPList = WscCPList->next;
++		free(CPNode);
++	} 
++	else
++	{
++		while((CPNode = CPNode->next))
++		{
++			if(strcmp(CPNode->device.SID, SID) == 0)
++			{
++				prevNode->next = CPNode->next;
++				free(CPNode);
++				break;
++			}
++			prevNode = CPNode;
++		}
++	}
++
++	return TRUE;
++}
++
++
++/******************************************************************************
++ * dumpDevCPNodeList
++ *
++ * Description: 
++ *       Dump the WscCPList. Used for debug.
++ *
++ * Parameters:
++ *   	void
++ *
++ *****************************************************************************/
++void dumpDevCPNodeList(void)
++{
++	struct upnpCPNode *CPNode;
++	int i=0;
++	
++	printf("Dump The UPnP Subscribed ControlPoint:\n");
++
++	CPNode = WscCPList;	
++	while(CPNode)
++	{
++		i++;
++		printf("ControlPoint Node[%d]:\n", i);
++		printf("\t ->sid=%s\n", CPNode->device.SID);
++		printf("\t ->SubURL=%s\n", CPNode->device.SubURL);
++		printf("\t ->ipAddr=0x%x!\n", CPNode->device.ipAddr);
++		printf("\t ->SubTimeOut=%d\n", CPNode->device.SubTimeOut);
++		CPNode = CPNode->next;
++	}
++	
++	printf("\n-----DumpFinished!\n");
++
++}
++
++
++/******************************************************************************
++ * WscDevStateVarUpdate
++ *
++ * Description: 
++ *       Update the Wsc Device Service State variable, and notify all subscribed 
++ *       Control Points of the updated state.  Note that since this function
++ *       blocks on the mutex WscDevMutex, to avoid a hang this function should 
++ *       not be called within any other function that currently has this mutex 
++ *       locked.
++ *
++ * Parameters:
++ *   variable -- The variable number (WSC_EVENT_WLANEVENT, WSC_EVENT_APSTATUS,
++ *                   WSC_EVENT_STASTATUS)
++ *   value -- The string representation of the new value
++ *
++ *****************************************************************************/
++static int
++WscDevStateVarUpdate(
++	IN unsigned int variable,
++	IN char *value,
++	IN char *SubsId)
++{
++	struct subscriber* sub = NULL;
++	int sub_found = 0;
++	
++	if((variable >= WSC_STATE_VAR_MAXVARS) || (strlen(value) >= WSC_STATE_VAR_MAX_STR_LEN))
++		return (0);
++
++	strcpy(wscLocalDevice.services.StateVarVal[variable], value);
++
++	if (SubsId == NULL)
++	{
++		upnp_event_var_change_notify(EWSC);
++	}
++	else 
++	{
++		sub_found = WscDevSubscriberSearch(SubsId, &sub);
++
++		if ((sub_found)/* && (sub->service == EWSC)*/)
++		{
++			if (sub != NULL)
++			{
++				if ((sub->service == EWSC) && (sub->notify == NULL))
++				{
++					upnp_event_create_notify(sub);
++				}
++			}
++			else
++			{
++				DBGPRINTF(RT_DBG_ERROR, "\n%s() : ERROR!!! : sub = NULL!.\n", __FUNCTION__); 
++			}
++		}
++		else if (!sub_found)
++		{
++			DBGPRINTF(RT_DBG_ERROR, "\n%s() : ERROR!!! : The subscriber can not be found in subscriberlist., SubsId=%s\n", __FUNCTION__,SubsId);
++			if (sub) 
++			{
++				DBGPRINTF(RT_DBG_ERROR, "\n%s() : ERROR!!! : The subscriber can not be found in subscriberlist., sub->service=%d, SubsId=%s\n", __FUNCTION__,sub->service,SubsId);
++			}
++			else
++			{
++				DBGPRINTF(RT_DBG_ERROR, "\n%s() : ERROR!!! : sub = NULL!. \n", __FUNCTION__);
++			}	
++		}
++	}
++
++    return (1);
++}
++
++
++/*
++	The format of UPnP WLANEvent message send to Remote Registrar.
++	  WLANEvent:
++		=>This variable represents the concatenation of the WLANEventType, WLANEventMac and the 
++		  802.11 WSC message received from the Enrollee & forwarded by the proxy over UPnP.
++		=>the format of this variable
++			->represented as base64(WLANEventType || WLANEventMAC || Enrollee's message).
++	  WLANEventType:
++		=>This variable represents the type of WLANEvent frame that was received by the proxy on 
++		  the 802.11 network.
++		=>the options for this variable
++			->1: 802.11 WCN-NET Probe Frame
++			->2: 802.11 WCN-NET 802.1X/EAP Frame
++	  WLANEventMAC:
++		=>This variable represents the MAC address of the WLAN Enrollee that generated the 802.11 
++	 	  frame that was received by the proxy.
++	 	=>Depends on the WFAWLANConfig:1  Service Template Version 1.01, the format is
++ 			->"xx:xx:xx:xx:xx:xx", case-independent, 17 char
++*/	
++int WscEventCtrlMsgRecv(
++	IN char *pBuf,
++	IN int  bufLen)
++{
++
++	DBGPRINTF(RT_DBG_INFO, "Receive a Control Message!\n");
++	return 0;
++
++}
++
++
++//receive a WSC message and send it to remote UPnP Contorl Point
++int WscEventDataMsgRecv(
++	IN char *pBuf,
++	IN int  bufLen)
++{
++	RTMP_WSC_MSG_HDR *pHdr = NULL;
++	unsigned char *encodeStr = NULL, *pWscMsg = NULL, *pUPnPMsg = NULL;
++	int encodeLen = 0, UPnPMsgLen = 0;
++	int retVal;
++	uint32 wscLen;
++	char *strSID = NULL;
++	unsigned char includeMAC = 0;
++	char curMacStr[18];
++	
++	if ((WscUPnPOpMode & WSC_UPNP_OPMODE_DEV) == 0)
++		return -1;
++		
++	pHdr = (RTMP_WSC_MSG_HDR *)pBuf;
++
++#if 0 //Mediatek : Sync with wscd, skip search control point by IP, and send the upnp data to all  control points
++	// Find the SID.
++	if(WscDevCPNodeSearch(pHdr->ipAddr, &strSID) == 0)
++	{
++		DBGPRINTF(RT_DBG_INFO, "%s(): Didn't find the SID by ip(0x%x)!\n", __FUNCTION__, pHdr->ipAddr);
++	}
++	else
++	{
++		DBGPRINTF(RT_DBG_INFO, "%s(): The SID(%s) by ip(0x%x)!\n", __FUNCTION__, strSID, pHdr->ipAddr);
++	}
++#endif	
++	DBGPRINTF(RT_DBG_INFO, "%s:Receive a Data event, msgSubType=%d!\n", __FUNCTION__, pHdr->msgSubType);
++
++	memset(curMacStr, 0 , sizeof(curMacStr));
++	if ((pHdr->msgSubType & WSC_UPNP_DATA_SUB_INCLUDE_MAC) == WSC_UPNP_DATA_SUB_INCLUDE_MAC)
++	{
++		if (pHdr->msgLen < 6){
++			DBGPRINTF(RT_DBG_ERROR, "pHdr->msgSubType didn't have enoguh length!\n", pHdr->msgLen);
++			return -1;
++		}
++		includeMAC = 1;
++		pHdr->msgSubType &= 0x00ff;
++		pWscMsg = (unsigned char *)(pBuf + sizeof(RTMP_WSC_MSG_HDR));
++		snprintf(curMacStr, 18, "%02x:%02x:%02x:%02x:%02x:%02x", pWscMsg[0], pWscMsg[1], pWscMsg[2], pWscMsg[3],pWscMsg[4],pWscMsg[5]);	
++	}
++	else
++	{
++		memcpy(&curMacStr[0], CfgMacStr, 17);
++	}
++
++	
++	if (pHdr->msgSubType == WSC_UPNP_DATA_SUB_NORMAL || 
++		pHdr->msgSubType == WSC_UPNP_DATA_SUB_TO_ALL ||
++		pHdr->msgSubType == WSC_UPNP_DATA_SUB_TO_ONE)
++	{
++
++		DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(len=%d)!\n", __FUNCTION__, bufLen);
++
++		pWscMsg = (unsigned char *)(pBuf + sizeof(RTMP_WSC_MSG_HDR));
++		//Get the WscData Length
++		wscLen = pHdr->msgLen;
++		
++		if (includeMAC)
++		{
++			wscLen -= MAC_ADDR_LEN;
++			pWscMsg += MAC_ADDR_LEN;
++		}
++		
++		DBGPRINTF(RT_DBG_INFO, "(%s): pWscMsg Len=%d!\n", __FUNCTION__, wscLen);
++			
++			
++		UPnPMsgLen = wscLen + 18;
++		pUPnPMsg = malloc(UPnPMsgLen);
++		if(pUPnPMsg)
++		{
++			memset(pUPnPMsg, 0, UPnPMsgLen);
++			pUPnPMsg[0] = WSC_EVENT_WLANEVENTTYPE_EAP;
++			memcpy(&pUPnPMsg[1], &curMacStr[0], 17);
++
++			//Copy the WscMsg to pUPnPMsg buffer
++			memcpy(&pUPnPMsg[18], pWscMsg, wscLen);
++			wsc_hexdump("UPnP WLANEVENT Msg", (char *)pUPnPMsg, UPnPMsgLen);
++
++			//encode the message use base64
++			encodeLen = ILibBase64Encode(pUPnPMsg, UPnPMsgLen, &encodeStr);
++			
++			//Send event out
++			if (encodeLen > 0){
++				DBGPRINTF(RT_DBG_INFO, "EAP->Msg=%s!\n", encodeStr);
++				retVal = WscDevStateVarUpdate(WSC_EVENT_WLANEVENT, (char *)encodeStr, strSID);
++			}
++			if (encodeStr != NULL)
++				free(encodeStr);
++			free(pUPnPMsg);
++		}
++	}
++	
++	if (strSID)
++		free(strSID);
++	
++	return 0;
++	
++}
++
++
++/*
++	Format of iwcustom msg WSC RegistrarSelected message:
++	1. The Registrar ID which send M2 to the Enrollee(4 bytes):
++								
++			  4
++		+-----------+
++		|RegistrarID|
++*/
++static int WscEventMgmt_RegSelect(	
++	IN char *pBuf,
++	IN int  bufLen)
++{
++	char *pWscMsg = NULL;
++	int registrarID = 0;
++		
++	if ((WscUPnPOpMode & WSC_UPNP_OPMODE_DEV) == 0)
++		return -1;
++	
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(len=%d)!\n", __FUNCTION__, bufLen);
++	wsc_hexdump("WscEventMgmt_RegSelect-K2UMsg", pBuf, bufLen);
++
++	pWscMsg = (char *)(pBuf + sizeof(RTMP_WSC_MSG_HDR));
++
++	registrarID = *((int *)pWscMsg);
++	DBGPRINTF(RT_DBG_INFO, "The registrarID=%d!\n", registrarID);
++	
++	return 0;
++
++}
++
++/*
++	Format of iwcustom msg WSC clientJoin message:
++	1. SSID which station want to probe(32 bytes):
++			<SSID string>
++		*If the length if SSID string is small than 32 bytes, fill 0x0 for remaining bytes.
++	2. Station MAC address(6 bytes):
++	3. Status:
++		Value 1 means change APStatus as 1. 
++		Value 2 means change STAStatus as 1.
++		Value 3 means trigger msg.
++								
++			32         6       1 
++		+----------+--------+------+
++		|SSIDString| SrcMAC |Status|
++*/
++static int WscEventMgmt_ConfigReq(
++	IN char *pBuf,
++	IN int  bufLen)
++{
++	unsigned char *encodeStr = NULL, *pWscMsg = NULL, *pUPnPMsg = NULL;
++	int encodeLen = 0, UPnPMsgLen = 0;
++	int retVal;
++	unsigned char Status;
++	char triggerMac[18];
++		
++	
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(len=%d)!\n", __FUNCTION__, bufLen);
++	wsc_hexdump("WscEventMgmt_ConfigReq-K2UMsg", pBuf, bufLen);
++
++	pWscMsg = (unsigned char *)(pBuf + sizeof(RTMP_WSC_MSG_HDR));
++
++	memset(&triggerMac[0], 0, 18);
++	memcpy(&triggerMac[0], pWscMsg, 18);
++	//Skip the SSID field
++	pWscMsg += 32;
++			
++#if 0
++	// Get the SrcMAC and copy to the WLANEVENTMAC, in format "xx:xx:xx:xx:xx:xx", case-independent, 17 char.
++	memset(CfgMacStr, 0 , sizeof(CfgMacStr));
++	snprintf(CfgMacStr, 18, "%02x:%02x:%02x:%02x:%02x:%02x", pWscMsg[0], pWscMsg[1], pWscMsg[2],
++															pWscMsg[3],pWscMsg[4],pWscMsg[5]);
++#endif
++	//Skip the SrcMAC field
++	pWscMsg += 6;
++
++	//Change APStatus and STAStatus
++	Status = *(pWscMsg);
++	DBGPRINTF(RT_DBG_INFO, "(%s): Status =%d!\n", __FUNCTION__, Status);
++
++	if ((WscUPnPOpMode & WSC_UPNP_OPMODE_DEV) && (strlen(triggerMac) == 0))
++	{
++		strcpy(wscLocalDevice.services.StateVarVal[WSC_EVENT_APSTATUS], "0");
++		strcpy(wscLocalDevice.services.StateVarVal[WSC_EVENT_STASTATUS], "0");
++
++		/* not needed right now */
++#if 0
++		if(Status == 3)
++		{
++			/* This "ConfigReq" is the trigger msg, we should send BYEBYE to all external registrar for 
++				reset the cache status of those Vista devices. Then re-send Notify out.
++			*/
++	    	retVal = AdvertiseAndReply(-1, wscDevHandle, 0, (struct sockaddr_in *)NULL,(char *)NULL, 
++									(char *)NULL, (char *)NULL, defAdvrExpires);
++		    retVal = AdvertiseAndReply(1, wscDevHandle, 0, (struct sockaddr_in *)NULL,(char *)NULL, 
++									(char *)NULL, (char *)NULL, defAdvrExpires);
++		}
++#endif
++		//Prepare the message.
++		UPnPMsgLen = 18 + sizeof(wscAckMsg);
++		pUPnPMsg = malloc(UPnPMsgLen);
++		
++		if(pUPnPMsg)
++		{
++			memset(pUPnPMsg, 0, UPnPMsgLen);
++			pUPnPMsg[0] = WSC_EVENT_WLANEVENTTYPE_EAP;
++			memcpy(&pUPnPMsg[1], CfgMacStr, 17);
++
++			//jump to the WscProbeReqData and copy to pUPnPMsg buffer
++			pWscMsg++;	
++			memcpy(&pUPnPMsg[18], wscAckMsg, sizeof(wscAckMsg));
++			wsc_hexdump("UPnP WLANEVENT Msg", (char *)pUPnPMsg, UPnPMsgLen);
++					
++			//encode the message use base64
++			encodeLen = ILibBase64Encode(pUPnPMsg, UPnPMsgLen, &encodeStr);
++			if(encodeLen > 0)
++				DBGPRINTF(RT_DBG_INFO, "ConfigReq->Msg=%s!\n", encodeStr);
++			strcpy(wscLocalDevice.services.StateVarVal[WSC_EVENT_WLANEVENT], (const char *)encodeStr);
++			
++			//Send event out
++			if (encodeLen > 0)
++				retVal = WscDevStateVarUpdate(WSC_EVENT_WLANEVENT, (char *)encodeStr, NULL);
++
++			if (encodeStr != NULL)
++				free(encodeStr);
++			free(pUPnPMsg);
++		}
++	}
++
++	if ((WscUPnPOpMode & WSC_UPNP_OPMODE_CP) && (strlen(triggerMac) > 0))
++	{
++		
++	}
++
++	DBGPRINTF(RT_DBG_INFO, "<-----End(%s)\n", __FUNCTION__);
++	return 0;
++}
++
++/*
++	Format of iwcustom msg WSC ProbeReq message:
++	1. SSID which station want to probe(32 bytes):
++			<SSID string>
++		*If the length if SSID string is small than 32 bytes, fill 0x0 for remaining bytes.
++	2. Station MAC address(6 bytes):
++	3. element ID(OID)(1 byte):
++			val=0xDD for eID
++			val=other values, high byte of length fields.
++	4. Length of "WscProbeReqData" in the probeReq packet(1 byte):
++	5. "WscProbeReqData" info in ProbeReq:
++								
++			32        6      1          1          variable length
++		+----------+--------+---+-----------------+----------------------+
++		|SSIDString| SrcMAC |eID|LenOfWscProbeData|    WscProbeReqData   |
++
++*/
++static int WscEventMgmt_ProbreReq(
++	IN char *pBuf,
++	IN int  bufLen)
++{
++	unsigned char *encodeStr = NULL, *pWscMsg = NULL, *pUPnPMsg = NULL;
++	char srcMacStr[18];
++	int encodeLen = 0, UPnPMsgLen = 0;
++	int retVal;
++	unsigned short wscLen;
++		
++	if ((WscUPnPOpMode & WSC_UPNP_OPMODE_DEV) == 0)
++		return -1;
++	
++	DBGPRINTF(RT_DBG_INFO, "(%s):Ready to parse the K2U msg(len=%d)!\n", __FUNCTION__, bufLen);
++	wsc_hexdump("WscMgmtEvent_ProbreReq-K2UMsg", pBuf, bufLen);
++
++	pWscMsg = (unsigned char *)(pBuf + sizeof(RTMP_WSC_MSG_HDR));
++	//Skip the SSID field
++	pWscMsg += 32;
++			
++	/* Get the SrcMAC and copy to the WLANEVENTMAC, 
++		depends on the WFAWLANConfig:1  Service Template Version 1.01, 
++		the MAC format is "xx:xx:xx:xx:xx:xx", case-independent, 17 char.
++	*/
++	memset(srcMacStr, 0 , sizeof(srcMacStr));
++	snprintf(srcMacStr, 18, "%02x:%02x:%02x:%02x:%02x:%02x", pWscMsg[0], pWscMsg[1], pWscMsg[2],pWscMsg[3],pWscMsg[4],pWscMsg[5]);
++	DBGPRINTF(RT_DBG_INFO, "ProbeReq->Mac=%s!\n", srcMacStr);
++
++	//Skip the SrcMAC field
++	pWscMsg += 6;
++
++	//Get the WscProbeData Length
++	if (*pWscMsg == 0xdd)
++		wscLen = (unsigned char)(*(pWscMsg + 1));
++	else
++		wscLen = ((*(pWscMsg))<<8) + (*(pWscMsg + 1));
++
++	DBGPRINTF(RT_DBG_INFO, "(%s): pWscHdr Len=%d!\n", __FUNCTION__, wscLen);
++		
++	UPnPMsgLen = wscLen + 18;
++	pUPnPMsg = malloc(UPnPMsgLen);
++	
++	if(pUPnPMsg)
++	{
++		memset(pUPnPMsg, 0, UPnPMsgLen);
++		pUPnPMsg[0] = WSC_EVENT_WLANEVENTTYPE_PROBE;
++		memcpy(&pUPnPMsg[1], srcMacStr, 17);
++
++		//jump to the WscProbeReqData and copy to pUPnPMsg buffer
++		pWscMsg += 2;
++		memcpy(&pUPnPMsg[18], pWscMsg, wscLen);
++		wsc_hexdump("UPnP WLANEVENT Msg", (char *)pUPnPMsg, UPnPMsgLen);
++				
++		//encode the message use base64
++		encodeLen = ILibBase64Encode(pUPnPMsg, UPnPMsgLen, &encodeStr);
++			
++		//Send event out
++		if (encodeLen > 0){
++			DBGPRINTF(RT_DBG_INFO, "ProbeReq->Msg=%s!\n", encodeStr);
++			retVal = WscDevStateVarUpdate(WSC_EVENT_WLANEVENT, (char *)encodeStr, NULL);
++		}
++		if (encodeStr != NULL)
++			free(encodeStr);
++		free(pUPnPMsg);
++	}
++	
++	return 0;
++	
++}
++
++
++int WscEventMgmtMsgRecv(
++	IN char *pBuf,
++	IN int  bufLen)
++{
++	RTMP_WSC_MSG_HDR *pHdr = NULL;	
++	
++	pHdr = (RTMP_WSC_MSG_HDR *)pBuf;
++	if (!pHdr)
++		return -1;
++
++	if (pHdr->msgType != WSC_OPCODE_UPNP_MGMT)
++		return -1;
++
++	DBGPRINTF(RT_DBG_INFO, "%s:Receive a MGMT event, msgSubType=%d\n", __FUNCTION__, pHdr->msgSubType);
++	switch(pHdr->msgSubType)
++	{
++		case WSC_UPNP_MGMT_SUB_PROBE_REQ:
++			WscEventMgmt_ProbreReq(pBuf, bufLen);
++			break;
++		case WSC_UPNP_MGMT_SUB_CONFIG_REQ:
++			WscEventMgmt_ConfigReq(pBuf, bufLen);
++			break;
++		case WSC_UPNP_MGMT_SUB_REG_SELECT:
++			WscEventMgmt_RegSelect(pBuf, bufLen);
++			break;
++		default:
++			DBGPRINTF(RT_DBG_ERROR, "Un-Supported WSC Mgmt event type(%d)!\n", pHdr->msgSubType);
++			break;
++	}
++
++	return 0;
++}
++
++
++/******************************************************************************
++ * WscDevHandleSubscriptionReq
++ *
++ * Description: 
++ *       Called during a subscription request callback.  If the subscription 
++ *       request is for the Wsc device and match the serviceId, then accept it.
++ *
++ * Parameters:
++ *   sr_event -- The "Upnp_Subscription_Request" structure
++ *
++ * Return:
++ *   TRUE 
++ *****************************************************************************/
++int
++WscDevHandleSubscriptionReq(IN struct upnphttp * h)
++{
++	/*  Insert this Control Point into WscCPList*/
++	WscDevCPNodeInsert(wscDevHandle, (char *)(&h->req_SIDOff));
++	dumpDevCPNodeList();
++
++	return TRUE;
++}
++
++
++/******************************************************************************
++ * WscDevServiceHandler
++ *
++ * Description: 
++ *       The callback handler registered with the SDK while registering
++ *       root device.  Dispatches the request to the appropriate procedure
++ *       based on the value of EventType. The four requests handled by the 
++ *       device are: 
++ *             1) Event Subscription requests.  
++ *             2) Get Variable requests. 
++ *             3) Action requests.
++ *
++ * Parameters:
++ *
++ *   EventType - The type of callback event
++ *   Event     - Data structure containing event data
++ *   Cookie    - Optional data specified during callback registration
++ *
++ * Return:
++ *   Zero 
++ *****************************************************************************/
++int WscDevServiceHandler(
++	struct upnphttp * h)
++{
++
++	switch (h->req_command) 
++	{
++		case ESubscribe:
++			WscDevHandleSubscriptionReq(h);
++			break;
++
++		case EUnSubscribe:
++			WscDevCPNodeRemove((char *)(&h->req_SIDOff));
++			break;
++
++		case EGet:
++		case EPost:
++			/* do nothing */
++			WscDevHandleActionReq(h);
++			break;
++
++		default:
++			DBGPRINTF(RT_DBG_ERROR, "Error in WscDevServiceHandler: unknown event type %d\n", h->req_command);
++	}
++
++	return (0);
++}
++
++
++/******************************************************************************
++ * WscLocalDevServTbInit
++ *
++ * Description: 
++ *     Initializes the service table for the Wsc UPnP service.
++ *     Note that knowledge of the service description is assumed. 
++ *
++ * Paramters:
++ *     None
++ *
++ * Return:
++ *      always TRUE.
++ *****************************************************************************/
++static int WscLocalDevServTbInit(void)
++{
++	unsigned int i = 0;
++
++	for (i = 0; i < WSC_STATE_VAR_MAXVARS; i++)
++	{
++		wscLocalDevice.services.StateVarVal[i] = wscStateVarCont[i];
++		strncpy(wscLocalDevice.services.StateVarVal[i], wscStateVarDefVal[i], WSC_STATE_VAR_MAX_STR_LEN-1);
++	}
++
++	/* replaced by soapMethods[] in upnpsoap.c */
++		
++	return TRUE;
++}
++
++
++/******************************************************************************
++ * WscUPnPDevStop
++ *
++ * Description: 
++ *     Stops the device. Uninitializes the sdk. 
++ *
++ * Parameters:
++ *     None
++ * Return:
++ *     TRUE 
++ *****************************************************************************/
++int WscUPnPDevStop(void)
++{
++//	UpnpUnRegisterRootDevice(wscDevHandle);
++	WscDevCPListRemoveAll();
++	
++	return 0;
++}
++
++/******************************************************************************
++ * WscUPnPDevStart
++ *
++ * Description: 
++ *      Registers the UPnP device, and sends out advertisements.
++ *
++ * Parameters:
++ *
++ *   char *ipAddr 		 - ip address to initialize the Device Service.
++ *   unsigned short port - port number to initialize the Device Service.
++ *   char *descDoc  	 - name of description document.
++ *                   		If NULL, use default description file name. 
++ *   char *webRootDir 	 - path of web directory.
++ *                   		If NULL, use default PATH.
++ * Return:
++ *    success - WSC_SYS_SUCCESS
++ *    failed  - WSC_SYS_ERROR
++ *****************************************************************************/
++int WscUPnPDevStart(
++	IN char *ipAddr,
++	IN unsigned short port,
++	IN char *descDoc,
++	IN char *webRootDir)
++{
++	int ret, strLen = 0;
++	char descDocUrl[WSC_UPNP_DESC_URL_LEN] = {0};
++	char udnStr[WSC_UPNP_UUID_STR_LEN]={0};
++
++	if (descDoc == NULL)
++		descDoc = DEFAULT_DESC_FILE_NAME;
++
++	if (webRootDir == NULL)
++		webRootDir = DEFAULT_WEB_ROOT_DIR;
++
++	memset(CfgMacStr, 0 , sizeof(CfgMacStr));
++	snprintf(CfgMacStr, 18, "%02x:%02x:%02x:%02x:%02x:%02x", HostMacAddr[0], HostMacAddr[1], 
++				HostMacAddr[2],HostMacAddr[3],HostMacAddr[4],HostMacAddr[5]);
++//peter : 0523	
++//	memset(&HostDescURL[0], 0, WSC_UPNP_DESC_URL_LEN);
++
++#ifdef USE_XML_TEMPLATE
++	memset(udnStr, 0, WSC_UPNP_UUID_STR_LEN);
++	ret = wsc_get_oid(RT_OID_WSC_UUID, &udnStr[5], &strLen);
++	if (ret == 0)
++	{
++		memcpy(&udnStr[0], "uuid:", 5);
++		DBGPRINTF(RT_DBG_PKT, "UUID Str=%s!\n", udnStr);
++
++		/* We replace the uuid string generated by init() of miniupnpd. */
++		strncpy(wps_uuidvalue+5, &udnStr[5], strLen);
++		ASSERT((*(wps_uuidvalue+5+strLen-1)) == '\0');
++		DBGPRINTF(RT_DBG_PKT, "wps_uuidvalue[]=%s!\n", wps_uuidvalue);
++	}
++	else
++	{
++		DBGPRINTF(RT_DBG_ERROR,  "Get UUID string failed -- ret=%d\n", ret);
++		goto failed;
++	}
++#if 0//peter : 0523
++	memset(descDocUrl, 0, WSC_UPNP_DESC_URL_LEN);
++	snprintf(descDocUrl, WSC_UPNP_DESC_URL_LEN, "http://%s:%d/WFADeviceDesc.xml", ipAddr, port);
++	strcpy(&HostDescURL[0], &descDocUrl[0]);
++	DBGPRINTF(RT_DBG_PKT, "Registering the RootDevice\n\t with descDocUrl: %s\n", descDocUrl);
++#endif
++#else
++//peter : 0523
++//	snprintf(descDocUrl, WSC_UPNP_DESC_URL_LEN, "http://%s:%d/%s", ipAddr, port, descDoc);
++//	strcpy(&HostDescURL[0], &descDocUrl[0]);
++#endif /* USE_XML_TEMPLATE */
++//peter : 0523
++//	DBGPRINTF(RT_DBG_PKT, "HostDescURL Prepared\n");
++
++	memset(&wscLocalDevice, 0, sizeof(wscLocalDevice));
++	WscLocalDevServTbInit();	
++	DBGPRINTF(RT_DBG_PKT, "WscLocalDevServTbInit Initialized\n");
++
++	//Init the ControlPoint List.
++	WscCPList = NULL;
++
++	return 0;
++
++failed:
++	
++	return WSC_SYS_ERROR;
++}
++
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/wsc/wsc_upnp_device.h
+===================================================================
+--- /dev/null
++++ b/wsc/wsc_upnp_device.h
+@@ -0,0 +1,98 @@
++
++
++#ifndef __WSC_UPNP_DEVICE_H__
++#define __WSC_UPNP_DEVICE_H__
++
++int
++WscDevGetAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++    OUT IXML_Document * out,
++    OUT char **errorString );
++int
++WscDevGetSTASettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int
++WscDevSetAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int
++WscDevDelAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int
++WscDevSetSTASettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int
++WscDevRebootAP(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int 
++WscDevResetAP(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int
++WscDevRebootSTA(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int
++WscDevResetSTA(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int WscDevSetSelectedRegistrar(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++int
++WscDevPutWLANResponse(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++
++int
++WscDevPutMessageResp(
++	IN WscEnvelope *msgEnvelope);
++
++int 
++WscDevPutMessage(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++
++int
++WscDevGetDeviceInfoResp(
++	IN WscEnvelope *envelope);
++
++int
++WscDevGetDeviceInfo(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif

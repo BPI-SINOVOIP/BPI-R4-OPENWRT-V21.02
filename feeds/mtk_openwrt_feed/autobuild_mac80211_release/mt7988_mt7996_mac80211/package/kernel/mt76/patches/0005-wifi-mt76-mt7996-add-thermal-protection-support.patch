@@ -1,0 +1,434 @@
+From c4d8ad5eb5f4d9929e923fa2c0683a2e24d8ca0c Mon Sep 17 00:00:00 2001
+From: Howard Hsu <howard-yh.hsu@mediatek.com>
+Date: Thu, 2 Feb 2023 21:20:31 +0800
+Subject: [PATCH 05/98] wifi: mt76: mt7996: add thermal protection support
+
+This commit includes the following changes:
+1. implement MTK thermal protection driver API
+2. support Linux cooling device control
+
+Change-Id: I8fecc28f5b17ee50ae4644d1dd17d188dd694731
+---
+ mt76_connac_mcu.h |   1 +
+ mt7996/init.c     | 103 +++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/main.c     |   8 ++++
+ mt7996/mcu.c      | 105 ++++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/mcu.h      |  44 +++++++++++++++++++
+ mt7996/mt7996.h   |  15 +++++++
+ 6 files changed, 276 insertions(+)
+
+diff --git a/mt76_connac_mcu.h b/mt76_connac_mcu.h
+index 6064973..99077f1 100644
+--- a/mt76_connac_mcu.h
++++ b/mt76_connac_mcu.h
+@@ -1021,6 +1021,7 @@ enum {
+ 	MCU_UNI_EVENT_RDD_REPORT = 0x11,
+ 	MCU_UNI_EVENT_ROC = 0x27,
+ 	MCU_UNI_EVENT_TX_DONE = 0x2d,
++	MCU_UNI_EVENT_THERMAL = 0x35,
+ 	MCU_UNI_EVENT_NIC_CAPAB = 0x43,
+ };
+ 
+diff --git a/mt7996/init.c b/mt7996/init.c
+index d335b58..610d80e 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -42,6 +42,98 @@ static const struct ieee80211_iface_combination if_comb[] = {
+ 	}
+ };
+ 
++static int
++mt7996_thermal_get_max_throttle_state(struct thermal_cooling_device *cdev,
++				      unsigned long *state)
++{
++	*state = MT7996_CDEV_THROTTLE_MAX;
++
++	return 0;
++}
++
++static int
++mt7996_thermal_get_cur_throttle_state(struct thermal_cooling_device *cdev,
++				      unsigned long *state)
++{
++	struct mt7996_phy *phy = cdev->devdata;
++
++	*state = phy->cdev_state;
++
++	return 0;
++}
++
++static int
++mt7996_thermal_set_cur_throttle_state(struct thermal_cooling_device *cdev,
++				      unsigned long state)
++{
++	struct mt7996_phy *phy = cdev->devdata;
++	u8 throttling = MT7996_THERMAL_THROTTLE_MAX - state;
++	int ret;
++
++	if (state > MT7996_CDEV_THROTTLE_MAX) {
++		dev_err(phy->dev->mt76.dev,
++			"please specify a valid throttling state\n");
++		return -EINVAL;
++	}
++
++	if (state == phy->cdev_state)
++		return 0;
++
++	/*
++	 * cooling_device convention: 0 = no cooling, more = more cooling
++	 * mcu convention: 1 = max cooling, more = less cooling
++	 */
++	ret = mt7996_mcu_set_thermal_throttling(phy, throttling);
++	if (ret)
++		return ret;
++
++	phy->cdev_state = state;
++
++	return 0;
++}
++
++static const struct thermal_cooling_device_ops mt7996_thermal_ops = {
++	.get_max_state = mt7996_thermal_get_max_throttle_state,
++	.get_cur_state = mt7996_thermal_get_cur_throttle_state,
++	.set_cur_state = mt7996_thermal_set_cur_throttle_state,
++};
++
++static void mt7996_unregister_thermal(struct mt7996_phy *phy)
++{
++	struct wiphy *wiphy = phy->mt76->hw->wiphy;
++
++	if (!phy->cdev)
++	    return;
++
++	sysfs_remove_link(&wiphy->dev.kobj, "cooling_device");
++	thermal_cooling_device_unregister(phy->cdev);
++}
++
++static int mt7996_thermal_init(struct mt7996_phy *phy)
++{
++	struct wiphy *wiphy = phy->mt76->hw->wiphy;
++	struct thermal_cooling_device *cdev;
++	const char *name;
++
++	name = devm_kasprintf(&wiphy->dev, GFP_KERNEL, "mt7996_%s",
++			      wiphy_name(wiphy));
++
++	cdev = thermal_cooling_device_register(name, phy, &mt7996_thermal_ops);
++	if (!IS_ERR(cdev)) {
++		if (sysfs_create_link(&wiphy->dev.kobj, &cdev->device.kobj,
++				      "cooling_device") < 0)
++			thermal_cooling_device_unregister(cdev);
++		else
++			phy->cdev = cdev;
++	}
++
++	/* initialize critical/maximum high temperature */
++	phy->throttle_temp[MT7996_CRIT_TEMP_IDX] = MT7996_CRIT_TEMP;
++	phy->throttle_temp[MT7996_MAX_TEMP_IDX] = MT7996_MAX_TEMP;
++
++	return 0;
++}
++
+ static void mt7996_led_set_config(struct led_classdev *led_cdev,
+ 				  u8 delay_on, u8 delay_off)
+ {
+@@ -419,6 +511,10 @@ static int mt7996_register_phy(struct mt7996_dev *dev, struct mt7996_phy *phy,
+ 	if (ret)
+ 		goto error;
+ 
++	ret = mt7996_thermal_init(phy);
++	if (ret)
++		goto error;
++
+ 	ret = mt7996_init_debugfs(phy);
+ 	if (ret)
+ 		goto error;
+@@ -446,6 +542,8 @@ mt7996_unregister_phy(struct mt7996_phy *phy, enum mt76_band_id band)
+ 	if (!phy)
+ 		return;
+ 
++	mt7996_unregister_thermal(phy);
++
+ 	mphy = phy->dev->mt76.phys[band];
+ 	mt76_unregister_phy(mphy);
+ 	ieee80211_free_hw(mphy->hw);
+@@ -1027,6 +1125,10 @@ int mt7996_register_device(struct mt7996_dev *dev)
+ 	if (ret)
+ 		return ret;
+ 
++	ret = mt7996_thermal_init(&dev->phy);
++	if (ret)
++		return ret;
++
+ 	ieee80211_queue_work(mt76_hw(dev), &dev->init_work);
+ 
+ 	ret = mt7996_register_phy(dev, mt7996_phy2(dev), MT_BAND1);
+@@ -1050,6 +1152,7 @@ void mt7996_unregister_device(struct mt7996_dev *dev)
+ {
+ 	mt7996_unregister_phy(mt7996_phy3(dev), MT_BAND2);
+ 	mt7996_unregister_phy(mt7996_phy2(dev), MT_BAND1);
++	mt7996_unregister_thermal(&dev->phy);
+ 	mt7996_coredump_unregister(dev);
+ 	mt76_unregister_device(&dev->mt76);
+ 	mt7996_mcu_exit(dev);
+diff --git a/mt7996/main.c b/mt7996/main.c
+index ae4f0ce..280120b 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -51,6 +51,14 @@ int mt7996_run(struct ieee80211_hw *hw)
+ 	if (ret)
+ 		goto out;
+ 
++	ret = mt7996_mcu_set_thermal_throttling(phy, MT7996_THERMAL_THROTTLE_MAX);
++	if (ret)
++		goto out;
++
++	ret = mt7996_mcu_set_thermal_protect(phy, true);
++	if (ret)
++		goto out;
++
+ 	set_bit(MT76_STATE_RUNNING, &phy->mt76->state);
+ 
+ 	ieee80211_queue_delayed_work(hw, &phy->mt76->mac_work,
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 328bea9..5310f9b 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -449,6 +449,34 @@ mt7996_mcu_ie_countdown(struct mt7996_dev *dev, struct sk_buff *skb)
+ 	}
+ }
+ 
++static void
++mt7996_mcu_rx_thermal_notify(struct mt7996_dev *dev, struct sk_buff *skb)
++{
++#define THERMAL_NOTIFY_TAG 0x4
++#define THERMAL_NOTIFY 0x2
++	struct mt76_phy *mphy = &dev->mt76.phy;
++	struct mt7996_mcu_thermal_notify *n;
++	struct mt7996_phy *phy;
++
++	n = (struct mt7996_mcu_thermal_notify *)skb->data;
++
++	if (n->tag != THERMAL_NOTIFY_TAG)
++		return;
++
++	if (n->event_id != THERMAL_NOTIFY)
++		return;
++
++	if (n->band_idx > MT_BAND2)
++		return;
++
++	mphy = dev->mt76.phys[n->band_idx];
++	if (!mphy)
++		return;
++
++	phy = (struct mt7996_phy *)mphy->priv;
++	phy->throttle_state = n->duty_percent;
++}
++
+ static void
+ mt7996_mcu_rx_ext_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ {
+@@ -493,6 +521,9 @@ mt7996_mcu_uni_rx_unsolicited_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 	case MCU_UNI_EVENT_RDD_REPORT:
+ 		mt7996_mcu_rx_radar_detected(dev, skb);
+ 		break;
++	case MCU_UNI_EVENT_THERMAL:
++		mt7996_mcu_rx_thermal_notify(dev, skb);
++		break;
+ 	default:
+ 		break;
+ 	}
+@@ -3450,6 +3481,80 @@ out:
+ 	return 0;
+ }
+ 
++
++int mt7996_mcu_set_thermal_throttling(struct mt7996_phy *phy, u8 state)
++{
++	struct {
++		u8 _rsv[4];
++
++		__le16 tag;
++		__le16 len;
++
++		struct mt7996_mcu_thermal_ctrl ctrl;
++	} __packed req = {
++		.tag = cpu_to_le16(UNI_CMD_THERMAL_PROTECT_DUTY_CONFIG),
++		.len = cpu_to_le16(sizeof(req) - 4),
++		.ctrl = {
++			.band_idx = phy->mt76->band_idx,
++		},
++	};
++	int level, ret;
++
++	/* set duty cycle and level */
++	for (level = 0; level < 4; level++) {
++		req.ctrl.duty.duty_level = level;
++		req.ctrl.duty.duty_cycle = state;
++		state /= 2;
++
++		ret = mt76_mcu_send_msg(&phy->dev->mt76, MCU_WM_UNI_CMD(THERMAL),
++					&req, sizeof(req), false);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++int mt7996_mcu_set_thermal_protect(struct mt7996_phy *phy, bool enable)
++{
++#define SUSTAIN_PERIOD		10
++	struct {
++		u8 _rsv[4];
++
++		__le16 tag;
++		__le16 len;
++
++		struct mt7996_mcu_thermal_ctrl ctrl;
++		struct mt7996_mcu_thermal_enable enable;
++	} __packed req = {
++		.len = cpu_to_le16(sizeof(req) - 4 - sizeof(req.enable)),
++		.ctrl = {
++			.band_idx = phy->mt76->band_idx,
++			.type.protect_type = 1,
++			.type.trigger_type = 1,
++		},
++	};
++	int ret;
++
++	req.tag = cpu_to_le16(UNI_CMD_THERMAL_PROTECT_DISABLE);
++
++	ret = mt76_mcu_send_msg(&phy->dev->mt76, MCU_WM_UNI_CMD(THERMAL),
++				&req, sizeof(req) - sizeof(req.enable), false);
++	if (ret || !enable)
++		return ret;
++
++	/* set high-temperature trigger threshold */
++	req.tag = cpu_to_le16(UNI_CMD_THERMAL_PROTECT_ENABLE);
++	req.enable.restore_temp = cpu_to_le32(phy->throttle_temp[0]);
++	req.enable.trigger_temp = cpu_to_le32(phy->throttle_temp[1]);
++	req.enable.sustain_time = cpu_to_le16(SUSTAIN_PERIOD);
++
++	req.len = cpu_to_le16(sizeof(req) - 4);
++
++	return mt76_mcu_send_msg(&phy->dev->mt76, MCU_WM_UNI_CMD(THERMAL),
++				 &req, sizeof(req), false);
++}
++
+ int mt7996_mcu_set_ser(struct mt7996_dev *dev, u8 action, u8 val, u8 band)
+ {
+ 	struct {
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index e4b3122..f1528df 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -30,6 +30,28 @@ struct mt7996_mcu_uni_event {
+ 	__le32 status; /* 0: success, others: fail */
+ } __packed;
+ 
++struct mt7996_mcu_thermal_ctrl {
++	u8 ctrl_id;
++	u8 band_idx;
++	union {
++		struct {
++			u8 protect_type; /* 1: duty admit, 2: radio off */
++			u8 trigger_type; /* 0: low, 1: high */
++		} __packed type;
++		struct {
++			u8 duty_level;	/* level 0~3 */
++			u8 duty_cycle;
++		} __packed duty;
++	};
++} __packed;
++
++struct mt7996_mcu_thermal_enable {
++	__le32 trigger_temp;
++	__le32 restore_temp;
++	__le16 sustain_time;
++	u8 rsv[2];
++} __packed;
++
+ struct mt7996_mcu_csa_notify {
+ 	struct mt7996_mcu_rxd rxd;
+ 
+@@ -153,6 +175,22 @@ struct mt7996_mcu_mib {
+ 	__le64 data;
+ } __packed;
+ 
++struct mt7996_mcu_thermal_notify {
++	struct mt7996_mcu_rxd rxd;
++
++	u8 __rsv1[4];
++
++	__le16 tag;
++	__le16 len;
++
++	u8 event_id;
++	u8 band_idx;
++	u8 level_idx;
++	u8 duty_percent;
++	__le32 restore_temp;
++	u8 __rsv2[4];
++} __packed;
++
+ enum mt7996_chan_mib_offs {
+ 	UNI_MIB_OBSS_AIRTIME = 26,
+ 	UNI_MIB_NON_WIFI_TIME = 27,
+@@ -656,6 +694,12 @@ enum{
+ 	UNI_CMD_SR_SET_SIGA = 0xd0,
+ };
+ 
++enum {
++	UNI_CMD_THERMAL_PROTECT_ENABLE = 0x6,
++	UNI_CMD_THERMAL_PROTECT_DISABLE,
++	UNI_CMD_THERMAL_PROTECT_DUTY_CONFIG,
++};
++
+ enum {
+ 	UNI_CMD_ACCESS_REG_BASIC = 0x0,
+ 	UNI_CMD_ACCESS_RF_REG_BASIC,
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index ef84173..e1972e9 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -50,6 +50,13 @@
+ #define MT7996_BASIC_RATES_TBL		11
+ #define MT7996_BEACON_RATES_TBL		25
+ 
++#define MT7996_THERMAL_THROTTLE_MAX	100
++#define MT7996_CDEV_THROTTLE_MAX	99
++#define MT7996_CRIT_TEMP_IDX		0
++#define MT7996_MAX_TEMP_IDX		1
++#define MT7996_CRIT_TEMP		110
++#define MT7996_MAX_TEMP			120
++
+ #define MT7996_RRO_MAX_SESSION		1024
+ #define MT7996_RRO_WINDOW_MAX_LEN	1024
+ #define MT7996_RRO_ADDR_ELEM_LEN	128
+@@ -191,6 +198,11 @@ struct mt7996_phy {
+ 
+ 	struct ieee80211_vif *monitor_vif;
+ 
++	struct thermal_cooling_device *cdev;
++	u8 cdev_state;
++	u8 throttle_state;
++	u32 throttle_temp[2]; /* 0: critical high, 1: maximum */
++
+ 	u32 rxfilter;
+ 	u64 omac_mask;
+ 
+@@ -445,6 +457,9 @@ int mt7996_mcu_set_radio_en(struct mt7996_phy *phy, bool enable);
+ int mt7996_mcu_set_rts_thresh(struct mt7996_phy *phy, u32 val);
+ int mt7996_mcu_set_timing(struct mt7996_phy *phy, struct ieee80211_vif *vif);
+ int mt7996_mcu_get_chan_mib_info(struct mt7996_phy *phy, bool chan_switch);
++int mt7996_mcu_get_temperature(struct mt7996_phy *phy);
++int mt7996_mcu_set_thermal_throttling(struct mt7996_phy *phy, u8 state);
++int mt7996_mcu_set_thermal_protect(struct mt7996_phy *phy, bool enable);
+ int mt7996_mcu_rdd_cmd(struct mt7996_dev *dev, int cmd, u8 index,
+ 		       u8 rx_sel, u8 val);
+ int mt7996_mcu_rdd_background_enable(struct mt7996_phy *phy,
+-- 
+2.18.0
+

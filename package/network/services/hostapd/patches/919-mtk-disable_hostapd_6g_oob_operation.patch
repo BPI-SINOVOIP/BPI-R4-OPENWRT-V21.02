@@ -1,0 +1,32 @@
+Index: hostapd-2022-06-02-4383528e/src/ap/beacon.c
+===================================================================
+--- hostapd-2022-06-02-4383528e.orig/src/ap/beacon.c
++++ hostapd-2022-06-02-4383528e/src/ap/beacon.c
+@@ -2008,27 +2008,6 @@ int ieee802_11_set_beacon(struct hostapd
+ 	if (ret != 0)
+ 		return ret;
+ 
+-	if (!iface->interfaces || iface->interfaces->count <= 1)
+-		return 0;
+-
+-	/* Update Beacon frames in case of 6 GHz colocation */
+-	is_6g = is_6ghz_op_class(iface->conf->op_class);
+-	for (j = 0; j < iface->interfaces->count; j++) {
+-		struct hostapd_iface *colocated;
+-
+-		colocated = iface->interfaces->iface[j];
+-		if (colocated == iface || !colocated || !colocated->conf)
+-			continue;
+-
+-		if (is_6g == is_6ghz_op_class(colocated->conf->op_class))
+-			continue;
+-
+-		for (i = 0; i < colocated->num_bss; i++) {
+-			if (colocated->bss[i] && colocated->bss[i]->started)
+-				__ieee802_11_set_beacon(colocated->bss[i]);
+-		}
+-	}
+-
+ 	return 0;
+ }
+ 

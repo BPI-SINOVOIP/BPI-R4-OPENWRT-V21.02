@@ -1,0 +1,62 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+@@ -5117,14 +5117,54 @@ int wpa_auth_pmksa_add_sae(struct wpa_au
+ 	wpa_hexdump_key(MSG_DEBUG, "RSN: Cache PMK from SAE", pmk, pmk_len);
+ 	if (!akmp)
+ 		akmp = WPA_KEY_MGMT_SAE;
+-	if (pmksa_cache_auth_add(wpa_auth->pmksa, pmk, pmk_len, pmkid,
++
++#ifdef CONFIG_MTK_IEEE80211BE
++	if (1) {
++		struct wpa_ml_group *ml_group = ((struct hostapd_data *)wpa_auth->cb_ctx)->ml_group;
++		if (!ml_group) { /*legacy case*/
++			wpa_printf(MSG_INFO, "RSN: legacy case to add pmksa");
++			if (pmksa_cache_auth_add(wpa_auth->pmksa, pmk, pmk_len, pmkid,
+ 				 NULL, 0, aa, addr, 0, NULL, akmp
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ 				 ,link_addr
+ #endif
+-	))
+-		return 0;
++			))
++			return 0;
++		} else { /*mlo case*/
++			int i = 0;
++			struct wpa_ml_link *link = NULL;
++			struct wpa_authenticator *auth = NULL;
++			wpa_printf(MSG_INFO, "ML: mlo case to add pmksa");
++			for (i = 0; i < ml_group->ml_link_num; i++) {
++				link = &ml_group->links[i];
++				if (link == NULL)
++					continue;
++
++				auth = ((struct hostapd_data *)link->ctx)->wpa_auth;
++				wpa_printf(MSG_INFO, "ML: wpa_auth:%p peer MLD MAC is (" MACSTR ") ", auth, MAC2STR(addr));
++				if (auth) {
++					if (pmksa_cache_auth_add(auth->pmksa, pmk, pmk_len, pmkid,
++				 		NULL, 0, aa, addr, 0, NULL, akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++				 		,link_addr
++#endif
++					))
++					wpa_printf(MSG_INFO, "ML: pmksa add ok");
++				}
++			}
++			return 0;
++		}
++	}
++#else
+ 
++	if (pmksa_cache_auth_add(wpa_auth->pmksa, pmk, pmk_len, pmkid,
++		NULL, 0, aa, addr, 0, NULL, akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++		,link_addr
++#endif
++	))
++	return 0;
++#endif /* CONFIG_MTK_IEEE80211BE */
+ 	return -1;
+ }
+ 

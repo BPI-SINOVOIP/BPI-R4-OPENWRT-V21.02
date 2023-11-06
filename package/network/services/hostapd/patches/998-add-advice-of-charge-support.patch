@@ -1,0 +1,307 @@
+diff --git a/hostapd/config_file.c b/hostapd/config_file.c
+index b47d2c2..83f15ef 100644
+--- a/hostapd/config_file.c
++++ b/hostapd/config_file.c
+@@ -1338,6 +1338,180 @@ fail:
+ 	return ret;
+ }
+ 
++int hostapd_get_plan_info(char *plan, u8 plan_id)
++{
++	int plan_length=0;
++	switch (plan_id) {
++		case 0:
++		{
++			char plan_detail[] =
++				"<\?xml version=\"1.0\" encoding=\"UTF-8\"\?><Plan xmlns=\"http://www.wi-fi.org/specifications/hotspot2dot0/v1.0/aocpi\"><Description>Wi-Fi access for 1 hour, while you wait at the gate, $0.99</Description></Plan>";
++			plan_length = strlen(plan_detail);
++			if (plan_length <= 255)
++				os_memcpy(plan,plan_detail,plan_length);
++			break;
++		}
++		case 1:
++		{
++			char plan_detail[] = {
++				0x3c,0x3f,0x78,0x6d,0x6c,0x20,0x76,0x65,0x72,0x73,0x69,0x6f,0x6e,0x3d,0x22,0x31,0x2e,0x30,0x22,0x20,
++				0x65,0x6e,0x63,0x6f,0x64,0x69,0x6e,0x67,0x3d,0x22,0x55,0x54,0x46,0x2d,0x38,0x22,0x3f,0x3e,0x3c,
++				0x50,0x6c,0x61,0x6e,0x20,0x78,0x6d,0x6c,0x6e,0x73,0x3d,0x22,0x68,0x74,0x74,0x70,0x3a,0x2f,0x2f,
++				0x77,0x77,0x77,0x2e,0x77,0x69,0x2d,0x66,0x69,0x2e,0x6f,0x72,0x67,0x2f,0x73,0x70,0x65,0x63,0x69,
++				0x66,0x69,0x63,0x61,0x74,0x69,0x6f,0x6e,0x73,0x2f,0x68,0x6f,0x74,0x73,0x70,0x6f,0x74,0x32,0x64,
++				0x6f,0x74,0x30,0x2f,0x76,0x31,0x2e,0x30,0x2f,0x61,0x6f,0x63,0x70,0x69,0x22,0x3e,0x3c,0x44,0x65,
++				0x73,0x63,0x72,0x69,0x70,0x74,0x69,0x6f,0x6e,0x3e,0x41,0x63,0x63,0xc3,0xa8,0x73,0x20,0x57,0x69,
++				0x2d,0x46,0x69,0x20,0x70,0x65,0x6e,0x64,0x61,0x6e,0x74,0x20,0x31,0x20,0x68,0x65,0x75,0x72,0x65,
++				0x2c,0x20,0x70,0x65,0x6e,0x64,0x61,0x6e,0x74,0x20,0x71,0x75,0x65,0x20,0x76,0x6f,0x75,0x73,0x20,
++				0x61,0x74,0x74,0x65,0x6e,0x64,0x65,0x7a,0x20,0xc3,0xa0,0x20,0x6c,0x61,0x20,0x70,0x6f,0x72,0x74,
++				0x65,0x2c,0x20,0x30,0x2c,0x39,0x39,0x20,0x24,0x3c,0x2f,0x44,0x65,0x73,0x63,0x72,0x69,0x70,0x74,
++				0x69,0x6f,0x6e,0x3e,0x3c,0x2f,0x50,0x6c,0x61,0x6e,0x3e
++			};
++
++			plan_length = sizeof(plan_detail);
++
++			if (plan_length <= 255)
++				os_memcpy(plan,plan_detail,plan_length);
++			break;
++		}
++		case 2:
++		{
++			char plan_detail[] =
++				"<?xml version=\"1.0\" encoding=\"UTF-8\"?><Plan xmlns=\"http://www.wi-fi.org/specifications/hotspot2dot0/v1.0/aocpi\"><Description>Download videos for your flight, $2.99 for 10GB</Description></Plan>";
++			plan_length = strlen(plan_detail);
++
++			if (plan_length <= 255)
++				os_memcpy(plan,plan_detail,plan_length);
++			break;
++		}
++		case 3:
++		{
++			char plan_detail[] = {
++				0x3c,0x3f,0x78,0x6d,0x6c,0x20,0x76,0x65,0x72,0x73,0x69,0x6f,0x6e,0x3d,0x22,0x31,0x2e,0x30,0x22,0x20,0x65,
++				0x6e,0x63,0x6f,0x64,0x69,0x6e,0x67,0x3d,0x22,0x55,0x54,0x46,0x2d,0x38,0x22,0x3f,0x3e,0x3c,0x50,0x6c,
++				0x61,0x6e,0x20,0x78,0x6d,0x6c,0x6e,0x73,0x3d,0x22,0x68,0x74,0x74,0x70,0x3a,0x2f,0x2f,0x77,0x77,0x77,
++				0x2e,0x77,0x69,0x2d,0x66,0x69,0x2e,0x6f,0x72,0x67,0x2f,0x73,0x70,0x65,0x63,0x69,0x66,0x69,0x63,0x61,
++				0x74,0x69,0x6f,0x6e,0x73,0x2f,0x68,0x6f,0x74,0x73,0x70,0x6f,0x74,0x32,0x64,0x6f,0x74,0x30,0x2f,0x76,
++				0x31,0x2e,0x30,0x2f,0x61,0x6f,0x63,0x70,0x69,0x22,0x3e,0x3c,0x44,0x65,0x73,0x63,0x72,0x69,0x70,0x74,
++				0x69,0x6f,0x6e,0x3e,0x54,0xc3,0xa9,0x6c,0xc3,0xa9,0x63,0x68,0x61,0x72,0x67,0x65,0x7a,0x20,0x64,0x65,
++				0x73,0x20,0x76,0x69,0x64,0xc3,0xa9,0x6f,0x73,0x20,0x70,0x6f,0x75,0x72,0x20,0x76,0x6f,0x74,0x72,0x65,
++				0x20,0x76,0x6f,0x6c,0x2c,0x20,0x32,0x2c,0x39,0x39,0x20,0x24,0x20,0x70,0x6f,0x75,0x72,0x20,0x31,0x30,
++				0x20,0x47,0x6f,0x3c,0x2f,0x44,0x65,0x73,0x63,0x72,0x69,0x70,0x74,0x69,0x6f,0x6e,0x3e,0x3c,0x2f,0x50,
++				0x6c,0x61,0x6e,0x3e
++			};
++
++			plan_length = sizeof(plan_detail);
++
++			if (plan_length <= 255)
++				os_memcpy(plan,plan_detail,plan_length);
++			break;
++		}
++		case 4:
++		{
++			char plan_detail[] =
++				"<?xml version=\"1.0\" encoding=\"UTF-8\"?><Plan xmlns=\"http://www.wi-fi.org/specifications/hotspot2dot0/v1.0/aocpi\"><Description>Free with your subscription!</Description></Plan>";
++			plan_length = strlen(plan_detail);
++
++			if (plan_length <= 255)
++				os_memcpy(plan,plan_detail,plan_length);
++			break;
++		}
++		default:
++			wpa_printf(MSG_ERROR, "NO valid plan found\n");
++			break;
++	}
++
++	if (plan_length == 0)
++		wpa_printf(MSG_ERROR, "No valid plan info for plan id %d\n",plan_id);
++
++	return plan_length;
++}
++
++static int parse_advice_of_charge(struct hostapd_bss_config *bss, char *buf, int line)
++{
++	struct hostapd_advice_of_charge  *aoc;
++	struct aoc_plan_data *plan;
++	char *pos, *end;
++
++	aoc = os_realloc_array(bss->aoc_data, bss->aoc_count + 1,
++			sizeof(struct hostapd_advice_of_charge));
++	if (aoc == NULL)
++		return -1;
++
++	bss->aoc_data = aoc;
++	aoc = &bss->aoc_data[bss->aoc_count];
++
++	os_memset(aoc, 0, sizeof(*aoc));
++
++	pos = buf;
++	aoc->advice_of_charge_type = atoi(pos);
++	pos = os_strchr(pos, ':');
++	if (pos == NULL)
++		return -1;
++	pos++;
++
++	aoc->aoc_realm_encoding = atoi(pos);
++
++	pos = os_strchr(pos, ':');
++	if (pos == NULL)
++		return -1;
++
++	pos++;
++
++	if (*pos == ':') {
++		end = pos;
++		aoc->aoc_realm_len = 0;
++	} else {
++		end = os_strchr(pos, ':');
++		if (end == NULL || end - pos > 64)
++			return -1;
++		os_memcpy(aoc->aoc_realm, pos, end - pos);
++		aoc->aoc_realm_len = end - pos;
++	}
++
++	pos = end + 1;
++
++	while (pos && *pos) {
++		end = os_strchr(pos, ':');
++		if (end == NULL || end - pos > 3)
++			return -1;
++
++		plan = os_realloc_array(aoc->aoc_plan, aoc->aoc_plan_count + 1,
++				sizeof(struct aoc_plan_data));
++
++		if (plan == NULL)
++			return -1;
++
++		aoc->aoc_plan = plan;
++		plan = &aoc->aoc_plan[aoc->aoc_plan_count];
++
++		os_memset(plan, 0, sizeof(*plan));
++		os_memcpy(plan->language, pos, end - pos);
++		pos = end + 1;
++
++		end = os_strchr(pos, ':');
++		if (end == NULL || end - pos > 3)
++			return -1;
++		os_memcpy(plan->currency_code, pos, end - pos);
++		pos = end + 1;
++
++		end = os_strchr(pos, ';');
++
++		if (end == NULL) {
++			u8 plan_id = atoi(pos);
++			plan->plan_information_len = hostapd_get_plan_info(plan->plan_info,plan_id);
++			pos = NULL;
++		} else {
++			u8 plan_id = atoi(pos);
++			plan->plan_information_len = hostapd_get_plan_info(plan->plan_info,plan_id);
++			pos = end + 1;
++		}
++		aoc->aoc_plan_count++;
++	}
++
++	bss->aoc_count++;
++	return 0;
++}
+ 
+ static int parse_3gpp_cell_net(struct hostapd_bss_config *bss, char *buf,
+ 			       int line)
+@@ -4063,6 +4237,9 @@ static int hostapd_config_fill(struct hostapd_config *conf,
+ 	} else if (os_strcmp(buf, "venue_url") == 0) {
+ 		if (parse_venue_url(bss, pos, line) < 0)
+ 			return 1;
++	} else if (os_strcmp(buf, "advice_of_charge") == 0) {
++		if (parse_advice_of_charge(bss, pos, line) < 0)
++			return 1;
+ 	} else if (os_strcmp(buf, "network_auth_type") == 0) {
+ 		u8 auth_type;
+ 		u16 redirect_url_len;
+diff --git a/src/ap/ap_config.c b/src/ap/ap_config.c
+index 466c084..b177081 100644
+--- a/src/ap/ap_config.c
++++ b/src/ap/ap_config.c
+@@ -876,6 +876,14 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
+ 	os_free(conf->roaming_consortium);
+ 	os_free(conf->venue_name);
+ 	os_free(conf->venue_url);
++	if (conf->aoc_data) {
++		struct hostapd_advice_of_charge *tmp_aoc;
++		for (i = 0; i < conf->aoc_count; i++) {
++			tmp_aoc = &conf->aoc_data[i];
++			os_free(tmp_aoc->aoc_plan);
++		}
++		os_free(conf->aoc_data);
++	}
+ 	os_free(conf->nai_realm_data);
+ 	os_free(conf->network_auth_type);
+ 	os_free(conf->anqp_3gpp_cell_net);
+diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
+index c55cdf4..0d762e9 100644
+--- a/src/ap/ap_config.h
++++ b/src/ap/ap_config.h
+@@ -224,6 +224,22 @@ struct hostapd_venue_url {
+ 	u8 url[254];
+ };
+ 
++struct aoc_plan_data{
++	u16 plan_information_len;
++	char language[3];
++	char currency_code[3];
++	char plan_info[255];
++};
++
++struct hostapd_advice_of_charge {
++	u8 advice_of_charge_type;
++	u8 aoc_realm_encoding;
++	u8 aoc_realm_len;
++	char aoc_realm[64];
++	u8 aoc_plan_count;
++	struct aoc_plan_data *aoc_plan;
++};
++
+ #define MAX_NAI_REALMS 10
+ #define MAX_NAI_REALMLEN 255
+ #define MAX_NAI_EAP_METHODS 5
+@@ -583,6 +599,10 @@ struct hostapd_bss_config {
+ 	unsigned int venue_url_count;
+ 	struct hostapd_venue_url *venue_url;
+ 
++	/* Advice of charge duples */
++	unsigned int aoc_count;
++	struct hostapd_advice_of_charge *aoc_data;
++
+ 	/* IEEE 802.11u - Network Authentication Type */
+ 	u8 *network_auth_type;
+ 	size_t network_auth_type_len;
+diff --git a/src/ap/gas_serv.c b/src/ap/gas_serv.c
+index bd8bc62..68c0600 100644
+--- a/src/ap/gas_serv.c
++++ b/src/ap/gas_serv.c
+@@ -354,6 +354,39 @@ static void anqp_add_venue_url(struct hostapd_data *hapd, struct wpabuf *buf)
+ 	}
+ }
+ 
++static void anqp_add_advice_of_charge(struct hostapd_data *hapd, struct wpabuf *buf)
++{
++	if (hapd->conf->aoc_data) {
++		u8 *len;
++		unsigned int i,j;
++		len = gas_anqp_add_element(buf, ANQP_ADVICE_OF_CHARGE);
++		for (i = 0; i < hapd->conf->aoc_count; i++) {
++			struct hostapd_advice_of_charge *aoc;
++			u32 plan_len = 0;
++			u8* plan_pos = NULL;
++			plan_pos = wpabuf_put(buf, 2); /*total plan len to be filled */
++			aoc = &hapd->conf->aoc_data[i];
++			wpabuf_put_u8(buf, aoc->advice_of_charge_type);
++			wpabuf_put_u8(buf, aoc->aoc_realm_encoding);
++			wpabuf_put_u8(buf, aoc->aoc_realm_len);
++			if (aoc->aoc_realm_len > 0)
++				wpabuf_put_data(buf, aoc->aoc_realm, aoc->aoc_realm_len);
++			plan_len += 3 + aoc->aoc_realm_len;
++			for (j = 0; j < aoc->aoc_plan_count; j++)
++			{
++				struct aoc_plan_data *plan;
++				plan = &aoc->aoc_plan[j];
++				wpabuf_put_le16(buf, 6 + plan->plan_information_len);
++				wpabuf_put_data(buf, plan->language, 3);
++				wpabuf_put_data(buf, plan->currency_code, 3);
++				wpabuf_put_data(buf, plan->plan_info, plan->plan_information_len);
++				plan_len += 8 + plan->plan_information_len;
++			}
++			WPA_PUT_LE16(plan_pos, plan_len);
++		}
++		gas_anqp_set_element_len(buf, len);
++	}
++}
+ 
+ static void anqp_add_network_auth_type(struct hostapd_data *hapd,
+ 				       struct wpabuf *buf)
+@@ -1040,6 +1073,10 @@ gas_serv_build_gas_resp_payload(struct hostapd_data *hapd,
+ 			anqp_add_venue_url(hapd, buf);
+ 			continue;
+ 		}
++		if (extra_req[i] == ANQP_ADVICE_OF_CHARGE) {
++			anqp_add_advice_of_charge(hapd, buf);
++			continue;
++		}
+ 		anqp_add_elem(hapd, buf, extra_req[i]);
+ 	}
+ 

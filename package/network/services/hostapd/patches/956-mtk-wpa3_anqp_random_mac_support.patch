@@ -1,0 +1,82 @@
+diff --git a/wpa_supplicant/ctrl_iface.c b/wpa_supplicant/ctrl_iface.c
+index 169a24b..65fc6d1 100644
+--- a/wpa_supplicant/ctrl_iface.c
++++ b/wpa_supplicant/ctrl_iface.c
+@@ -7655,6 +7655,18 @@ static int get_anqp(struct wpa_supplicant *wpa_s, char *dst)
+ 	return anqp_send_req(wpa_s, dst_addr, freq, id, num_id, subtypes,
+ 			     mbo_subtypes);
+ }
++#ifdef CONFIG_PE
++static int set_gas_random_mac(struct wpa_supplicant *wpa_s, char *value)
++{
++	int rand_mac_enable;
++
++	rand_mac_enable = atoi(value);
++	wpa_s->conf->gas_rand_mac_addr = rand_mac_enable;
++	wpa_printf(MSG_DEBUG ,"Gas : Random mac Enable[%d]\n",wpa_s->conf->gas_rand_mac_addr);
++	return 0;
++
++}
++#endif
+ 
+ 
+ static int gas_request(struct wpa_supplicant *wpa_s, char *cmd)
+@@ -12012,6 +12024,11 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
+ 	} else if (os_strncmp(buf, "ANQP_GET ", 9) == 0) {
+ 		if (get_anqp(wpa_s, buf + 9) < 0)
+ 			reply_len = -1;
++#ifdef CONFIG_PE
++	} else if (os_strncmp(buf, "GAS_RAND_MAC_ENABLE ", 20) == 0) {
++		if (set_gas_random_mac(wpa_s, buf + 20) < 0)
++			reply_len = -1;
++#endif
+ 	} else if (os_strncmp(buf, "GAS_REQUEST ", 12) == 0) {
+ 		if (gas_request(wpa_s, buf + 12) < 0)
+ 			reply_len = -1;
+diff --git a/wpa_supplicant/gas_query.c b/wpa_supplicant/gas_query.c
+index 802f120..a2cfffa 100644
+--- a/wpa_supplicant/gas_query.c
++++ b/wpa_supplicant/gas_query.c
+@@ -798,6 +798,13 @@ static int gas_query_set_sa(struct gas_query *gas,
+ 			   "GAS: Failed to get random address with same OUI");
+ 		return -1;
+ 	}
++#ifdef CONFIG_PE
++	if (wpa_drv_set_mac_addr(wpa_s, gas->rand_addr) < 0) {
++                wpa_msg(wpa_s, MSG_ERROR,
++                        "Failed to set random MAC address");
++                return -1;
++        }
++#endif
+ 
+ 	wpa_printf(MSG_DEBUG, "GAS: Use a new random transmitter address "
+ 		   MACSTR, MAC2STR(gas->rand_addr));
+diff --git a/wpa_supplicant/wpa_cli.c b/wpa_supplicant/wpa_cli.c
+index a0340dd..b196246 100644
+--- a/wpa_supplicant/wpa_cli.c
++++ b/wpa_supplicant/wpa_cli.c
+@@ -2712,6 +2712,12 @@ static int wpa_cli_cmd_anqp_get(struct wpa_ctrl *ctrl, int argc, char *argv[])
+ {
+ 	return wpa_cli_cmd(ctrl, "ANQP_GET", 2, argc, argv);
+ }
++#ifdef CONFIG_PE
++static int wpa_cli_cmd_gas_rand_mac_enable(struct wpa_ctrl *ctrl, int argc, char *argv[])
++{
++	return wpa_cli_cmd(ctrl, "GAS_RAND_MAC_ENABLE", 1, argc, argv);
++}
++#endif
+ 
+ 
+ static int wpa_cli_cmd_gas_request(struct wpa_ctrl *ctrl, int argc,
+@@ -3824,6 +3830,11 @@ static const struct wpa_cli_cmd wpa_cli_commands[] = {
+ 	{ "anqp_get", wpa_cli_cmd_anqp_get, wpa_cli_complete_bss,
+ 	  cli_cmd_flag_none,
+ 	  "<addr> <info id>[,<info id>]... = request ANQP information" },
++#ifdef CONFIG_PE
++	{ "gas_rand_mac_enable", wpa_cli_cmd_gas_rand_mac_enable, wpa_cli_complete_bss,
++	  cli_cmd_flag_none,
++	  "<0,1 or 2 ]... = Enable gas random mac address" },
++#endif
+ 	{ "gas_request", wpa_cli_cmd_gas_request, wpa_cli_complete_bss,
+ 	  cli_cmd_flag_none,
+ 	  "<addr> <AdvProtoID> [QueryReq] = GAS request" },

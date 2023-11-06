@@ -1,0 +1,260 @@
+From 2cd9ab05b3a16a92fb2552102b2a9c36834d1e7d Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Fri, 31 Mar 2023 11:36:34 +0800
+Subject: [PATCH 44/98] wifi: mt76: mt7996: add binfile mode support
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ eeprom.c             | 20 ++++++++++++++++++++
+ mt76.h               |  3 +++
+ mt7996/eeprom.c      | 42 +++++++++++++++++++++++++++++++++++++++---
+ mt7996/eeprom.h      |  7 +++++++
+ mt7996/mt7996.h      |  3 +++
+ mt7996/mtk_debugfs.c | 40 ++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 112 insertions(+), 3 deletions(-)
+
+diff --git a/eeprom.c b/eeprom.c
+index 437d8ca..89bb913 100644
+--- a/eeprom.c
++++ b/eeprom.c
+@@ -159,6 +159,26 @@ int mt76_get_of_eeprom(struct mt76_dev *dev, void *eep, int offset, int len)
+ }
+ EXPORT_SYMBOL_GPL(mt76_get_of_eeprom);
+ 
++bool mt76_check_bin_file_mode(struct mt76_dev *dev)
++{
++	struct device_node *np = dev->dev->of_node;
++	const char *bin_file_name = NULL;
++
++	if (!np)
++		return false;
++
++	of_property_read_string(np, "bin_file_name", &bin_file_name);
++
++	dev->bin_file_name = bin_file_name;
++	if (dev->bin_file_name)
++		dev_info(dev->dev, "Using bin file %s\n", dev->bin_file_name);
++
++	of_node_put(np);
++
++	return dev->bin_file_name ? true : false;
++}
++EXPORT_SYMBOL_GPL(mt76_check_bin_file_mode);
++
+ void
+ mt76_eeprom_override(struct mt76_phy *phy)
+ {
+diff --git a/mt76.h b/mt76.h
+index fc69d3e..0bf0177 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -945,6 +945,8 @@ struct mt76_dev {
+ 		struct mt76_usb usb;
+ 		struct mt76_sdio sdio;
+ 	};
++
++	const char *bin_file_name;
+ };
+ 
+ /* per-phy stats.  */
+@@ -1190,6 +1192,7 @@ void mt76_seq_puts_array(struct seq_file *file, const char *str,
+ int mt76_eeprom_init(struct mt76_dev *dev, int len);
+ void mt76_eeprom_override(struct mt76_phy *phy);
+ int mt76_get_of_eeprom(struct mt76_dev *dev, void *data, int offset, int len);
++bool mt76_check_bin_file_mode(struct mt76_dev *dev);
+ 
+ struct mt76_queue *
+ mt76_init_queue(struct mt76_dev *dev, int qid, int idx, int n_desc,
+diff --git a/mt7996/eeprom.c b/mt7996/eeprom.c
+index b88fd64..ca91c69 100644
+--- a/mt7996/eeprom.c
++++ b/mt7996/eeprom.c
+@@ -61,8 +61,11 @@ static int mt7996_check_eeprom(struct mt7996_dev *dev)
+ 	}
+ }
+ 
+-static char *mt7996_eeprom_name(struct mt7996_dev *dev)
++const char *mt7996_eeprom_name(struct mt7996_dev *dev)
+ {
++	if (dev->bin_file_mode)
++		return dev->mt76.bin_file_name;
++
+ 	/* reserve for future variants */
+ 	if (dev->testmode_enable)
+ 		return MT7996_EEPROM_DEFAULT_TM;
+@@ -114,7 +117,10 @@ mt7996_eeprom_load_default(struct mt7996_dev *dev)
+ 		return ret;
+ 
+ 	if (!fw || !fw->data) {
+-		dev_err(dev->mt76.dev, "Invalid default bin\n");
++		if (dev->bin_file_mode)
++			dev_err(dev->mt76.dev, "Invalid bin (bin file mode)\n");
++		else
++			dev_err(dev->mt76.dev, "Invalid default bin\n");
+ 		ret = -EINVAL;
+ 		goto out;
+ 	}
+@@ -128,18 +134,45 @@ out:
+ 	return ret;
+ }
+ 
++static int mt7996_eeprom_load_flash(struct mt7996_dev *dev)
++{
++	int ret = 1;
++
++	/* return > 0 for load success, return 0 for load failed, return < 0 for non memory */
++	dev->bin_file_mode = mt76_check_bin_file_mode(&dev->mt76);
++	if (dev->bin_file_mode) {
++		dev->mt76.eeprom.size = MT7996_EEPROM_SIZE;
++		dev->mt76.eeprom.data = devm_kzalloc(dev->mt76.dev, dev->mt76.eeprom.size,
++						     GFP_KERNEL);
++		if (!dev->mt76.eeprom.data)
++			return -ENOMEM;
++
++		if (mt7996_eeprom_load_default(dev))
++			return 0;
++
++		if (mt7996_check_eeprom(dev))
++			return 0;
++	} else {
++		ret = mt76_eeprom_init(&dev->mt76, MT7996_EEPROM_SIZE);
++	}
++
++	return ret;
++}
++
+ int mt7996_eeprom_check_fw_mode(struct mt7996_dev *dev)
+ {
+ 	u8 *eeprom;
+ 	int ret;
+ 
+ 	/* load eeprom in flash or bin file mode to determine fw mode */
+-	ret = mt76_eeprom_init(&dev->mt76, MT7996_EEPROM_SIZE);
++	ret = mt7996_eeprom_load_flash(dev);
++
+ 	if (ret < 0)
+ 		return ret;
+ 
+ 	if (ret) {
+ 		dev->flash_mode = true;
++		dev->eeprom_mode = dev->bin_file_mode ? BIN_FILE_MODE : FLASH_MODE;
+ 		eeprom = dev->mt76.eeprom.data;
+ 		/* testmode enable priority: eeprom field > module parameter */
+ 		dev->testmode_enable = !mt7996_check_eeprom(dev) ? eeprom[MT_EE_TESTMODE_EN] :
+@@ -173,6 +206,7 @@ static int mt7996_eeprom_load(struct mt7996_dev *dev)
+ 			if (ret < 0)
+ 				return ret;
+ 		}
++		dev->eeprom_mode = EFUSE_MODE;
+ 	}
+ 
+ 	return mt7996_check_eeprom(dev);
+@@ -309,6 +343,8 @@ int mt7996_eeprom_init(struct mt7996_dev *dev)
+ 			return ret;
+ 
+ 		dev_warn(dev->mt76.dev, "eeprom load fail, use default bin\n");
++		dev->bin_file_mode = false;
++		dev->eeprom_mode = DEFAULT_BIN_MODE;
+ 		ret = mt7996_eeprom_load_default(dev);
+ 		if (ret)
+ 			return ret;
+diff --git a/mt7996/eeprom.h b/mt7996/eeprom.h
+index 7ff290f..20dd877 100644
+--- a/mt7996/eeprom.h
++++ b/mt7996/eeprom.h
+@@ -99,6 +99,13 @@ enum mt7996_eeprom_band {
+ 	MT_EE_BAND_SEL_6GHZ,
+ };
+ 
++enum mt7915_eeprom_mode {
++	DEFAULT_BIN_MODE,
++	EFUSE_MODE,
++	FLASH_MODE,
++	BIN_FILE_MODE,
++};
++
+ static inline int
+ mt7996_get_channel_group_5g(int channel)
+ {
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 684c254..cda557e 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -375,6 +375,8 @@ struct mt7996_dev {
+ 	} wed_rro;
+ 
+ 	bool testmode_enable;
++	bool bin_file_mode;
++	u8 eeprom_mode;
+ 
+ 	bool ibf;
+ 	u8 fw_debug_wm;
+@@ -518,6 +520,7 @@ irqreturn_t mt7996_irq_handler(int irq, void *dev_instance);
+ u64 __mt7996_get_tsf(struct ieee80211_hw *hw, struct mt7996_vif *mvif);
+ int mt7996_register_device(struct mt7996_dev *dev);
+ void mt7996_unregister_device(struct mt7996_dev *dev);
++const char *mt7996_eeprom_name(struct mt7996_dev *dev);
+ int mt7996_eeprom_init(struct mt7996_dev *dev);
+ int mt7996_eeprom_check_fw_mode(struct mt7996_dev *dev);
+ int mt7996_eeprom_parse_hw_cap(struct mt7996_dev *dev, struct mt7996_phy *phy);
+diff --git a/mt7996/mtk_debugfs.c b/mt7996/mtk_debugfs.c
+index 57fcbab..82b2785 100644
+--- a/mt7996/mtk_debugfs.c
++++ b/mt7996/mtk_debugfs.c
+@@ -2551,6 +2551,44 @@ static const struct file_operations mt7996_txpower_sku_fops = {
+ 	.llseek = default_llseek,
+ };
+ 
++static int mt7996_show_eeprom_mode(struct seq_file *s, void *data)
++{
++	struct mt7996_dev *dev = dev_get_drvdata(s->private);
++	struct mt76_dev *mdev = &dev->mt76;
++#ifdef CONFIG_NL80211_TESTMODE
++	const char *mtd_name = mdev->test_mtd.name;
++	u32 mtd_offset = mdev->test_mtd.offset;
++#else
++	const char *mtd_name = NULL;
++	u32 mtd_offset;
++#endif
++
++	seq_printf(s, "Current eeprom mode:\n");
++
++	switch (dev->eeprom_mode) {
++	case DEFAULT_BIN_MODE:
++		seq_printf(s, "   default bin mode\n   filename = %s\n", mt7996_eeprom_name(dev));
++		break;
++	case EFUSE_MODE:
++		seq_printf(s, "   efuse mode\n");
++		break;
++	case FLASH_MODE:
++		if (mtd_name)
++			seq_printf(s, "   flash mode\n   mtd name = %s\n   flash offset = 0x%x\n",
++				   mtd_name, mtd_offset);
++		else
++			seq_printf(s, "   flash mode\n");
++		break;
++	case BIN_FILE_MODE:
++		seq_printf(s, "   bin file mode\n   filename = %s\n", mt7996_eeprom_name(dev));
++		break;
++	default:
++		break;
++	}
++
++	return 0;
++}
++
+ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir)
+ {
+ 	struct mt7996_dev *dev = phy->dev;
+@@ -2596,6 +2634,8 @@ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir)
+ 	debugfs_create_file("txpower_level", 0600, dir, phy, &fops_txpower_level);
+ 	debugfs_create_file("txpower_info", 0600, dir, phy, &mt7996_txpower_info_fops);
+ 	debugfs_create_file("txpower_sku", 0600, dir, phy, &mt7996_txpower_sku_fops);
++	debugfs_create_devm_seqfile(dev->mt76.dev, "eeprom_mode", dir,
++				    mt7996_show_eeprom_mode);
+ 
+ 	debugfs_create_devm_seqfile(dev->mt76.dev, "wtbl_info", dir,
+ 				    mt7996_wtbl_read);
+-- 
+2.18.0
+

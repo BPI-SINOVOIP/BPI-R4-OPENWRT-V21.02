@@ -1,0 +1,56 @@
+diff --git a/src/ap/wpa_auth.c b/src/ap/wpa_auth.c
+index 1c2b483..0f74b46 100644
+--- a/src/ap/wpa_auth.c
++++ b/src/ap/wpa_auth.c
+@@ -2417,9 +2417,6 @@ SM_STATE(WPA_PTK, PTKSTART)
+ 			wpa_hexdump(MSG_DEBUG,
+ 				    "RSN: Message 1/4 PMKID derived from PMK",
+ 				    &pmkid[2 + RSN_SELECTOR_LEN], PMKID_LEN);
+-#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+-			wpa_auth_add_wpa_pmkid(sm, &pmkid[2 + RSN_SELECTOR_LEN]);
+-#endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+ 		}
+ 	}
+ 	if (!pmkid)
+@@ -4997,11 +4994,7 @@ int wpa_auth_pmksa_add(struct wpa_state_machine *sm, const u8 *pmk,
+ 
+ 	wpa_hexdump_key(MSG_DEBUG, "RSN: Cache PMK", pmk, pmk_len);
+ 	if (pmksa_cache_auth_add(sm->wpa_auth->pmksa, pmk, pmk_len,
+-#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+-				sm->pmkid,
+-#else
+ 				NULL,
+-#endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+ 				sm->PTK.kck, sm->PTK.kck_len,
+ 				ml_auth_aa(sm, sm->wpa_auth->addr), ml_auth_spa(sm, sm->addr), session_timeout,
+ 				eapol, sm->wpa_key_mgmt))
+@@ -5056,15 +5049,6 @@ void wpa_auth_add_sae_pmkid(struct wpa_state_machine *sm, const u8 *pmkid)
+ }
+ 
+ 
+-#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+-void wpa_auth_add_wpa_pmkid(struct wpa_state_machine *sm, const u8 *pmkid)
+-{
+-	os_memcpy(sm->pmkid, pmkid, PMKID_LEN);
+-	sm->pmkid_set = 1;
+-}
+-#endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+-
+-
+ int wpa_auth_pmksa_add2(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ 			const u8 *pmk, size_t pmk_len, const u8 *pmkid,
+ 			int session_timeout, int akmp)
+diff --git a/src/ap/wpa_auth.h b/src/ap/wpa_auth.h
+index 70018ae..2d786f6 100644
+--- a/src/ap/wpa_auth.h
++++ b/src/ap/wpa_auth.h
+@@ -431,9 +431,6 @@ int wpa_auth_pmksa_add_sae(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ 			   const u8 *aa, const u8 *pmk, size_t pmk_len,
+ 			   const u8 *pmkid, int akmp);
+ void wpa_auth_add_sae_pmkid(struct wpa_state_machine *sm, const u8 *pmkid);
+-#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+-void wpa_auth_add_wpa_pmkid(struct wpa_state_machine *sm, const u8 *pmkid);
+-#endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+ int wpa_auth_pmksa_add2(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ 			const u8 *pmk, size_t pmk_len, const u8 *pmkid,
+ 			int session_timeout, int akmp);

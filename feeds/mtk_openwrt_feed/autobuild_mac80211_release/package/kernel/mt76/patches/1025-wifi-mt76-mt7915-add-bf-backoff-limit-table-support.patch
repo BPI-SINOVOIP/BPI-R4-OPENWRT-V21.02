@@ -1,0 +1,462 @@
+From f793f54b26302abc942574b2e6f19f609b3a1c0e Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Mon, 5 Dec 2022 18:21:51 +0800
+Subject: [PATCH 1025/1040] wifi: mt76: mt7915: add bf backoff limit table
+ support
+
+Signed-off-by: Shayne Chen <shayne.chen@mediatek.com>
+---
+ debugfs.c        |   2 +-
+ eeprom.c         |  34 +++++++++++-
+ mt76.h           |   8 +++
+ mt7915/debugfs.c |  73 ++++++++++++++++++++++++--
+ mt7915/mcu.c     | 132 ++++++++++++++++++++++++++++++++++++-----------
+ mt7915/mcu.h     |   6 +++
+ mt7915/mt7915.h  |   4 +-
+ 7 files changed, 220 insertions(+), 39 deletions(-)
+
+diff --git a/debugfs.c b/debugfs.c
+index 1c8328d..19a835c 100644
+--- a/debugfs.c
++++ b/debugfs.c
+@@ -95,7 +95,7 @@ void mt76_seq_puts_array(struct seq_file *file, const char *str,
+ {
+ 	int i;
+ 
+-	seq_printf(file, "%10s:", str);
++	seq_printf(file, "%16s:", str);
+ 	for (i = 0; i < len; i++)
+ 		seq_printf(file, " %2d", val[i]);
+ 	seq_puts(file, "\n");
+diff --git a/eeprom.c b/eeprom.c
+index eb532c7..4189525 100644
+--- a/eeprom.c
++++ b/eeprom.c
+@@ -367,12 +367,16 @@ s8 mt76_get_rate_power_limits(struct mt76_phy *phy,
+ 	char band;
+ 	size_t len;
+ 	s8 max_power = -127;
++	s8 max_power_backoff = -127;
+ 	s8 txs_delta;
++	int n_chains = hweight16(phy->chainmask);
++	s8 target_power_combine = target_power + mt76_tx_power_nss_delta(n_chains);
+ 
+ 	if (!mcs_rates)
+ 		mcs_rates = 10;
+ 
+-	memset(dest, target_power, sizeof(*dest));
++	memset(dest, target_power, sizeof(*dest) - sizeof(dest->path));
++	memset(&dest->path, 0, sizeof(dest->path));
+ 
+ 	if (!IS_ENABLED(CONFIG_OF))
+ 		return target_power;
+@@ -425,7 +429,33 @@ s8 mt76_get_rate_power_limits(struct mt76_phy *phy,
+ 				     ARRAY_SIZE(dest->ru), val, len,
+ 				     target_power, txs_delta, &max_power);
+ 
+-	return max_power;
++	max_power_backoff = max_power;
++	val = mt76_get_of_array(np, "paths-cck", &len, ARRAY_SIZE(dest->path.cck));
++	mt76_apply_array_limit(dest->path.cck, ARRAY_SIZE(dest->path.cck), val,
++			       target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ofdm", &len, ARRAY_SIZE(dest->path.ofdm));
++	mt76_apply_array_limit(dest->path.ofdm, ARRAY_SIZE(dest->path.ofdm), val,
++			       target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ofdm-bf", &len, ARRAY_SIZE(dest->path.ofdm_bf));
++	mt76_apply_array_limit(dest->path.ofdm_bf, ARRAY_SIZE(dest->path.ofdm_bf), val,
++			       target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ru", &len, ARRAY_SIZE(dest->path.ru[0]) + 1);
++	mt76_apply_multi_array_limit(dest->path.ru[0], ARRAY_SIZE(dest->path.ru[0]),
++				     ARRAY_SIZE(dest->path.ru), val, len,
++				     target_power_combine, txs_delta, &max_power_backoff);
++
++	val = mt76_get_of_array(np, "paths-ru-bf", &len, ARRAY_SIZE(dest->path.ru_bf[0]) + 1);
++	mt76_apply_multi_array_limit(dest->path.ru_bf[0], ARRAY_SIZE(dest->path.ru_bf[0]),
++				     ARRAY_SIZE(dest->path.ru_bf), val, len,
++				     target_power_combine, txs_delta, &max_power_backoff);
++
++	if (max_power_backoff == target_power_combine)
++		return max_power;
++
++	return max_power_backoff;
+ }
+ EXPORT_SYMBOL_GPL(mt76_get_rate_power_limits);
+ 
+diff --git a/mt76.h b/mt76.h
+index 13796ad..05c1874 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -1047,6 +1047,14 @@ struct mt76_power_limits {
+ 	s8 mcs[4][10];
+ 	s8 ru[7][12];
+ 	s8 eht[16][16];
++
++	struct {
++		s8 cck[4];
++		s8 ofdm[4];
++		s8 ofdm_bf[4];
++		s8 ru[7][10];
++		s8 ru_bf[7][10];
++	} path;
+ };
+ 
+ struct mt76_ethtool_worker_info {
+diff --git a/mt7915/debugfs.c b/mt7915/debugfs.c
+index f181377..19a37b5 100644
+--- a/mt7915/debugfs.c
++++ b/mt7915/debugfs.c
+@@ -1019,7 +1019,7 @@ mt7915_rate_txpower_get(struct file *file, char __user *user_buf,
+ 	if (!buf)
+ 		return -ENOMEM;
+ 
+-	ret = mt7915_mcu_get_txpower_sku(phy, txpwr, sizeof(txpwr));
++	ret = mt7915_mcu_get_txpower_sku(phy, txpwr, sizeof(txpwr), TX_POWER_INFO_RATE);
+ 	if (ret)
+ 		goto out;
+ 
+@@ -1133,7 +1133,7 @@ mt7915_rate_txpower_set(struct file *file, const char __user *user_buf,
+ 
+ 	mutex_lock(&dev->mt76.mutex);
+ 	ret = mt7915_mcu_get_txpower_sku(phy, req.txpower_sku,
+-					 sizeof(req.txpower_sku));
++					 sizeof(req.txpower_sku), TX_POWER_INFO_RATE);
+ 	if (ret)
+ 		goto out;
+ 
+@@ -1175,7 +1175,7 @@ out:
+ 	return ret ? ret : count;
+ }
+ 
+-static const struct file_operations mt7915_rate_txpower_fops = {
++static const struct file_operations mt7915_txpower_fops = {
+ 	.write = mt7915_rate_txpower_set,
+ 	.read = mt7915_rate_txpower_get,
+ 	.open = simple_open,
+@@ -1183,6 +1183,69 @@ static const struct file_operations mt7915_rate_txpower_fops = {
+ 	.llseek = default_llseek,
+ };
+ 
++static int
++mt7915_path_txpower_show(struct seq_file *file)
++{
++	struct mt7915_phy *phy = file->private;
++	s8 txpower[MT7915_SKU_PATH_NUM], *buf = txpower;
++	int ret;
++
++#define PATH_POWER_SHOW(_name, _len, _skip) do {				\
++		if (_skip) {						\
++			buf -= 1;					\
++			*buf = 0;					\
++		}							\
++		mt76_seq_puts_array(file, _name, buf, _len);		\
++		buf += _len;						\
++	} while(0)
++
++	seq_printf(file, "\n%*c", 17, ' ');
++	seq_printf(file, "1T1S/2T1S/3T1S/4T1S/2T2S/3T2S/4T2S/3T3S/4T3S/4T4S\n");
++	ret = mt7915_mcu_get_txpower_sku(phy, txpower, sizeof(txpower),
++					 TX_POWER_INFO_PATH);
++	if (ret)
++		return ret;
++
++	PATH_POWER_SHOW("CCK", 4, 0);
++	PATH_POWER_SHOW("OFDM", 4, 0);
++	PATH_POWER_SHOW("BF-OFDM", 4, 1);
++
++	PATH_POWER_SHOW("HT/VHT20", 10, 0);
++	PATH_POWER_SHOW("BF-HT/VHT20", 10, 1);
++	PATH_POWER_SHOW("HT/VHT40", 10, 0);
++	PATH_POWER_SHOW("BF-HT/VHT40", 10, 1);
++
++	PATH_POWER_SHOW("BW20/RU242", 10, 0);
++	PATH_POWER_SHOW("BF-BW20/RU242", 10, 1);
++	PATH_POWER_SHOW("BW40/RU484", 10, 0);
++	PATH_POWER_SHOW("BF-BW40/RU484", 10, 1);
++	PATH_POWER_SHOW("BW80/RU996", 10, 0);
++	PATH_POWER_SHOW("BF-BW80/RU996", 10, 1);
++	PATH_POWER_SHOW("BW160/RU2x996", 10, 0);
++	PATH_POWER_SHOW("BF-BW160/RU2x996", 10, 1);
++	PATH_POWER_SHOW("RU26", 10, 0);
++	PATH_POWER_SHOW("BF-RU26", 10, 0);
++	PATH_POWER_SHOW("RU52", 10, 0);
++	PATH_POWER_SHOW("BF-RU52", 10, 0);
++	PATH_POWER_SHOW("RU106", 10, 0);
++	PATH_POWER_SHOW("BF-RU106", 10, 0);
++#undef PATH_POWER_SHOW
++
++	return 0;
++}
++
++static int
++mt7915_txpower_path_show(struct seq_file *file, void *data)
++{
++	struct mt7915_phy *phy = file->private;
++
++	seq_printf(file, "\nBand %d\n", phy != &phy->dev->phy);
++
++	return mt7915_path_txpower_show(file);
++}
++
++DEFINE_SHOW_ATTRIBUTE(mt7915_txpower_path);
++
+ static int
+ mt7915_twt_stats(struct seq_file *s, void *data)
+ {
+@@ -1269,7 +1332,9 @@ int mt7915_init_debugfs(struct mt7915_phy *phy)
+ 	debugfs_create_file("implicit_txbf", 0600, dir, dev,
+ 			    &fops_implicit_txbf);
+ 	debugfs_create_file("txpower_sku", 0400, dir, phy,
+-			    &mt7915_rate_txpower_fops);
++			    &mt7915_txpower_fops);
++	debugfs_create_file("txpower_path", 0400, dir, phy,
++			    &mt7915_txpower_path_fops);
+ 	debugfs_create_devm_seqfile(dev->mt76.dev, "twt_stats", dir,
+ 				    mt7915_twt_stats);
+ 	debugfs_create_file("rf_regval", 0600, dir, dev, &fops_rf_regval);
+diff --git a/mt7915/mcu.c b/mt7915/mcu.c
+index 7e33386..f65f0ec 100644
+--- a/mt7915/mcu.c
++++ b/mt7915/mcu.c
+@@ -3311,7 +3311,8 @@ int mt7915_mcu_set_txpower_frame(struct mt7915_phy *phy,
+ 	int ret;
+ 	s8 txpower_sku[MT7915_SKU_RATE_NUM];
+ 
+-	ret = mt7915_mcu_get_txpower_sku(phy, txpower_sku, sizeof(txpower_sku));
++	ret = mt7915_mcu_get_txpower_sku(phy, txpower_sku, sizeof(txpower_sku),
++					 TX_POWER_INFO_RATE);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -3353,51 +3354,106 @@ int mt7915_mcu_set_txpower_frame(struct mt7915_phy *phy,
+ 
+ int mt7915_mcu_set_txpower_sku(struct mt7915_phy *phy)
+ {
++#define TX_POWER_LIMIT_TABLE_RATE	0
++#define TX_POWER_LIMIT_TABLE_PATH	1
+ 	struct mt7915_dev *dev = phy->dev;
+ 	struct mt76_phy *mphy = phy->mt76;
+ 	struct ieee80211_hw *hw = mphy->hw;
+-	struct mt7915_mcu_txpower_sku req = {
++	struct mt7915_sku_val {
++		u8 format_id;
++		u8 limit_type;
++		u8 band_idx;
++	} __packed hdr = {
+ 		.format_id = TX_POWER_LIMIT_TABLE,
++		.limit_type = TX_POWER_LIMIT_TABLE_RATE,
+ 		.band_idx = phy->mt76->band_idx,
+ 	};
+-	struct mt76_power_limits limits_array;
+-	s8 *la = (s8 *)&limits_array;
+-	int i, idx;
+-	int tx_power;
++	int i, ret, tx_power;
++	const u8 *len = mt7915_sku_group_len;
++	struct mt76_power_limits la = {};
++	struct sk_buff *skb;
+ 
+ 	tx_power = mt7915_get_power_bound(phy, hw->conf.power_level);
+ 	tx_power = mt76_get_rate_power_limits(mphy, mphy->chandef.chan,
+-					      &limits_array, tx_power);
++					      &la, tx_power);
+ 	mphy->txpower_cur = tx_power;
+ 
+-	for (i = 0, idx = 0; i < ARRAY_SIZE(mt7915_sku_group_len); i++) {
+-		u8 mcs_num, len = mt7915_sku_group_len[i];
+-		int j;
++	skb = mt76_mcu_msg_alloc(&dev->mt76, NULL,
++				 sizeof(hdr) + MT7915_SKU_RATE_NUM);
++	if (!skb)
++		return -ENOMEM;
+ 
+-		if (i >= SKU_HT_BW20 && i <= SKU_VHT_BW160) {
+-			mcs_num = 10;
++	skb_put_data(skb, &hdr, sizeof(hdr));
++	skb_put_data(skb, &la.cck, len[SKU_CCK] + len[SKU_OFDM]);
++	skb_put_data(skb, &la.mcs[0], len[SKU_HT_BW20]);
++	skb_put_data(skb, &la.mcs[1], len[SKU_HT_BW40]);
+ 
+-			if (i == SKU_HT_BW20 || i == SKU_VHT_BW20)
+-				la = (s8 *)&limits_array + 12;
+-		} else {
+-			mcs_num = len;
+-		}
++	/* vht */
++	for (i = 0; i < 4; i++) {
++		skb_put_data(skb, &la.mcs[i], sizeof(la.mcs[i]));
++		skb_put_zero(skb, 2);  /* padding */
++	}
++
++	/* he */
++	skb_put_data(skb, &la.ru[0], sizeof(la.ru));
+ 
+-		for (j = 0; j < min_t(u8, mcs_num, len); j++)
+-			req.txpower_sku[idx + j] = la[j];
++	ret = mt76_mcu_skb_send_msg(&dev->mt76, skb,
++				    MCU_EXT_CMD(TX_POWER_FEATURE_CTRL), true);
++	if (ret)
++		return ret;
++
++	/* only set per-path power table when it's configured */
++	if (!la.path.ofdm[0])
++		return 0;
+ 
+-		la += mcs_num;
+-		idx += len;
++	skb = mt76_mcu_msg_alloc(&dev->mt76, NULL,
++				 sizeof(hdr) + MT7915_SKU_PATH_NUM);
++	if (!skb)
++		return -ENOMEM;
++
++	hdr.limit_type = TX_POWER_LIMIT_TABLE_PATH;
++	skb_put_data(skb, &hdr, sizeof(hdr));
++	skb_put_data(skb, &la.path.cck, sizeof(la.path.cck));
++	skb_put_data(skb, &la.path.ofdm, sizeof(la.path.ofdm));
++	skb_put_data(skb, &la.path.ofdm_bf[1], sizeof(la.path.ofdm_bf) - 1);
++
++	/* HT20 and HT40 */
++	skb_put_data(skb, &la.path.ru[3], sizeof(la.path.ru[3]));
++	skb_put_data(skb, &la.path.ru_bf[3][1], sizeof(la.path.ru_bf[3]) - 1);
++	skb_put_data(skb, &la.path.ru[4], sizeof(la.path.ru[4]));
++	skb_put_data(skb, &la.path.ru_bf[4][1], sizeof(la.path.ru_bf[4]) - 1);
++
++	/* start from non-bf and bf fields of
++	 * BW20/RU242, BW40/RU484, BW80/RU996, BW160/RU2x996,
++	 * RU26, RU52, and RU106
++	 */
++
++	for (i = 0; i < 8; i++) {
++		bool bf = i % 2;
++		u8 idx = (i + 6) / 2;
++		s8 *buf = bf ? la.path.ru_bf[idx] : la.path.ru[idx];
++		/* The non-bf fields of RU26 to RU106 are special cases */
++		if (bf)
++			skb_put_data(skb, buf + 1, 9);
++		else
++			skb_put_data(skb, buf, 10);
+ 	}
+ 
+-	return mt76_mcu_send_msg(&dev->mt76,
+-				 MCU_EXT_CMD(TX_POWER_FEATURE_CTRL), &req,
+-				 sizeof(req), true);
++	for (i = 0; i < 6; i++) {
++		bool bf = i % 2;
++		u8 idx = i / 2;
++		s8 *buf = bf ? la.path.ru_bf[idx] : la.path.ru[idx];
++
++		skb_put_data(skb, buf, 10);
++	}
++
++	return mt76_mcu_skb_send_msg(&dev->mt76, skb,
++				     MCU_EXT_CMD(TX_POWER_FEATURE_CTRL), true);
+ }
+ 
+-int mt7915_mcu_get_txpower_sku(struct mt7915_phy *phy, s8 *txpower, int len)
++int mt7915_mcu_get_txpower_sku(struct mt7915_phy *phy, s8 *txpower, int len,
++			       u8 category)
+ {
+-#define RATE_POWER_INFO	2
+ 	struct mt7915_dev *dev = phy->dev;
+ 	struct {
+ 		u8 format_id;
+@@ -3406,10 +3462,9 @@ int mt7915_mcu_get_txpower_sku(struct mt7915_phy *phy, s8 *txpower, int len)
+ 		u8 _rsv;
+ 	} __packed req = {
+ 		.format_id = TX_POWER_LIMIT_INFO,
+-		.category = RATE_POWER_INFO,
++		.category = category,
+ 		.band_idx = phy->mt76->band_idx,
+ 	};
+-	s8 txpower_sku[MT7915_SKU_RATE_NUM][2];
+ 	struct sk_buff *skb;
+ 	int ret, i;
+ 
+@@ -3419,9 +3474,15 @@ int mt7915_mcu_get_txpower_sku(struct mt7915_phy *phy, s8 *txpower, int len)
+ 	if (ret)
+ 		return ret;
+ 
+-	memcpy(txpower_sku, skb->data + 4, sizeof(txpower_sku));
+-	for (i = 0; i < len; i++)
+-		txpower[i] = txpower_sku[i][req.band_idx];
++	if (category == TX_POWER_INFO_RATE) {
++		s8 res[MT7915_SKU_RATE_NUM][2];
++
++		memcpy(res, skb->data + 4, sizeof(res));
++		for (i = 0; i < len; i++)
++			txpower[i] = res[i][req.band_idx];
++	} else if (category == TX_POWER_INFO_PATH) {
++		memcpy(txpower, skb->data + 4, len);
++	}
+ 
+ 	dev_kfree_skb(skb);
+ 
+@@ -3463,9 +3524,18 @@ int mt7915_mcu_set_sku_en(struct mt7915_phy *phy, bool enable)
+ 		.band_idx = phy->mt76->band_idx,
+ 		.sku_enable = enable,
+ 	};
++	int ret;
++
++	ret = mt76_mcu_send_msg(&dev->mt76,
++				MCU_EXT_CMD(TX_POWER_FEATURE_CTRL), &req,
++				sizeof(req), true);
++	if (ret)
++		return ret;
+ 
+ 	pr_info("%s: enable = %d\n", __func__, enable);
+ 
++	req.format_id = TX_POWER_LIMIT_PATH_ENABLE;
++
+ 	return mt76_mcu_send_msg(&dev->mt76,
+ 				 MCU_EXT_CMD(TX_POWER_FEATURE_CTRL), &req,
+ 				 sizeof(req), true);
+diff --git a/mt7915/mcu.h b/mt7915/mcu.h
+index 5fc4e2e..142bfc1 100644
+--- a/mt7915/mcu.h
++++ b/mt7915/mcu.h
+@@ -502,12 +502,18 @@ enum {
+ 
+ enum {
+ 	TX_POWER_LIMIT_ENABLE,
++	TX_POWER_LIMIT_PATH_ENABLE = 0x3,
+ 	TX_POWER_LIMIT_TABLE = 0x4,
+ 	TX_POWER_LIMIT_INFO = 0x7,
+ 	TX_POWER_LIMIT_FRAME = 0x11,
+ 	TX_POWER_LIMIT_FRAME_MIN = 0x12,
+ };
+ 
++enum {
++	TX_POWER_INFO_PATH = 1,
++	TX_POWER_INFO_RATE,
++};
++
+ enum {
+ 	SPR_ENABLE = 0x1,
+ 	SPR_ENABLE_SD = 0x3,
+diff --git a/mt7915/mt7915.h b/mt7915/mt7915.h
+index a3d7b4b..4dc3825 100644
+--- a/mt7915/mt7915.h
++++ b/mt7915/mt7915.h
+@@ -72,6 +72,7 @@
+ #define MT7915_CDEV_THROTTLE_MAX	99
+ 
+ #define MT7915_SKU_RATE_NUM		161
++#define MT7915_SKU_PATH_NUM		185
+ 
+ #define MT7915_MAX_TWT_AGRT		16
+ #define MT7915_MAX_STA_TWT_AGRT		8
+@@ -572,7 +573,8 @@ int mt7915_mcu_set_test_param(struct mt7915_dev *dev, u8 param, bool test_mode,
+ int mt7915_mcu_set_ser(struct mt7915_dev *dev, u8 action, u8 set, u8 band);
+ int mt7915_mcu_set_sku_en(struct mt7915_phy *phy, bool enable);
+ int mt7915_mcu_set_txpower_sku(struct mt7915_phy *phy);
+-int mt7915_mcu_get_txpower_sku(struct mt7915_phy *phy, s8 *txpower, int len);
++int mt7915_mcu_get_txpower_sku(struct mt7915_phy *phy, s8 *txpower, int len,
++			       u8 category);
+ int mt7915_mcu_set_txpower_frame_min(struct mt7915_phy *phy, s8 txpower);
+ int mt7915_mcu_set_txpower_frame(struct mt7915_phy *phy,
+ 				 struct ieee80211_vif *vif,
+-- 
+2.18.0
+

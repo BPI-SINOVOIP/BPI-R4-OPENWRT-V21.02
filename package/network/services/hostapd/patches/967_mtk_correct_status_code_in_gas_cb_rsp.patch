@@ -1,0 +1,22 @@
+diff --git a/src/ap/gas_serv.c b/src/ap/gas_serv.c
+index 9a9afb0..11b5ff7 100644
+--- a/src/ap/gas_serv.c
++++ b/src/ap/gas_serv.c
+@@ -1853,10 +1853,17 @@ static void gas_serv_rx_gas_comeback_req(struct hostapd_data *hapd,
+ 		}
+ 	} else
+ #endif /* CONFIG_DPP */
++#ifdef CONFIG_MTK_PASSPOINT
++	tx_buf = gas_anqp_build_comeback_resp_buf(dialog_token,
++			status_code,
++			dialog->sd_frag_id,
++			more, 0, buf);
++#else
+ 	tx_buf = gas_anqp_build_comeback_resp_buf(dialog_token,
+ 						  WLAN_STATUS_SUCCESS,
+ 						  dialog->sd_frag_id,
+ 						  more, 0, buf);
++#endif /* CONFIG_MTK_PASSPOINT */
+ 	wpabuf_free(buf);
+ 	if (tx_buf == NULL) {
+ 		gas_serv_dialog_clear(dialog);

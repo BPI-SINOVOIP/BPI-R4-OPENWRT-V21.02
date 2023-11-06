@@ -1,0 +1,44 @@
+Index: hostapd-2022-01-16-cff80b4f/src/drivers/driver_nl80211.c
+===================================================================
+--- hostapd-2022-01-16-cff80b4f.orig/src/drivers/driver_nl80211.c
++++ hostapd-2022-01-16-cff80b4f/src/drivers/driver_nl80211.c
+@@ -8108,6 +8108,8 @@ static int wpa_driver_nl80211_if_remove(
+ 	struct wpa_driver_nl80211_data *drv = bss->drv;
+ 	int ifindex = if_nametoindex(ifname);
+ 
++	bss->in_removing = 1;
++
+ 	wpa_printf(MSG_DEBUG, "nl80211: %s(type=%d ifname=%s) ifindex=%d added_if=%d",
+ 		   __func__, type, ifname, ifindex, bss->added_if);
+ 	if (ifindex > 0 && (bss->added_if || bss->ifindex != ifindex))
+@@ -8452,7 +8454,18 @@ static int wpa_driver_nl80211_probe_req_
+ 	struct wpa_driver_nl80211_data *drv = bss->drv;
+ 
+ 	if (!report) {
++
++			/*
++			 *for virtual bss is being removing, we are force to 
++			 *clear it's probe req report
++			*/
+ 		if (bss->nl_preq && drv->device_ap_sme &&
++			is_ap_interface(drv->nlmode) && bss->in_removing &&
++			!bss->static_ap) {
++			wpa_printf(MSG_DEBUG, "nl80211: (%s): Disable Probe Request "
++				   "reporting nl_preq=%p", bss->ifname, bss->nl_preq);
++			nl80211_destroy_eloop_handle(&bss->nl_preq, 0);
++		} else if (bss->nl_preq && drv->device_ap_sme &&
+ 		    is_ap_interface(drv->nlmode) && !bss->in_deinit &&
+ 		    !bss->static_ap) {
+ 			/*
+Index: hostapd-2022-01-16-cff80b4f/src/drivers/driver_nl80211.h
+===================================================================
+--- hostapd-2022-01-16-cff80b4f.orig/src/drivers/driver_nl80211.h
++++ hostapd-2022-01-16-cff80b4f/src/drivers/driver_nl80211.h
+@@ -66,6 +66,7 @@ struct i802_bss {
+ 	unsigned int added_if:1;
+ 	unsigned int static_ap:1;
+ 	unsigned int use_nl_connect:1;
++	unsigned int in_removing:1;
+ 
+ 	u8 addr[ETH_ALEN];
+ 

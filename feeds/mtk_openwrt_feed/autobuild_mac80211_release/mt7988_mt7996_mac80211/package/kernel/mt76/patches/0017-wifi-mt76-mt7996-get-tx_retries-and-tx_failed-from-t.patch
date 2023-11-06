@@ -1,0 +1,107 @@
+From ff0611f9ade6ea4e9d84b7bd852ff745c609500b Mon Sep 17 00:00:00 2001
+From: Yi-Chia Hsieh <yi-chia.hsieh@mediatek.com>
+Date: Wed, 28 Jun 2023 07:51:38 +0800
+Subject: [PATCH 17/98] wifi: mt76: mt7996: get tx_retries and tx_failed from
+ txfree for both wed on and wed off
+
+---
+ mt76_connac3_mac.h |  4 ++--
+ mt7996/mac.c       | 21 ++++++++++++++++-----
+ mt7996/main.c      |  6 ++++++
+ 3 files changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/mt76_connac3_mac.h b/mt76_connac3_mac.h
+index df6b02a..20a2fe9 100644
+--- a/mt76_connac3_mac.h
++++ b/mt76_connac3_mac.h
+@@ -272,11 +272,11 @@ enum tx_mgnt_type {
+ #define MT_TXFREE0_MSDU_CNT		GENMASK(25, 16)
+ #define MT_TXFREE0_RX_BYTE		GENMASK(15, 0)
+ 
+-#define MT_TXFREE1_VER			GENMASK(18, 16)
++#define MT_TXFREE1_VER			GENMASK(19, 16)
+ 
+ #define MT_TXFREE_INFO_PAIR		BIT(31)
+ #define MT_TXFREE_INFO_HEADER		BIT(30)
+-#define MT_TXFREE_INFO_WLAN_ID		GENMASK(23, 12)
++#define MT_TXFREE_INFO_MLD_ID		GENMASK(23, 12)
+ #define MT_TXFREE_INFO_MSDU_ID		GENMASK(14, 0)
+ #define MT_TXFREE_INFO_COUNT		GENMASK(27, 24)
+ #define MT_TXFREE_INFO_STAT		GENMASK(29, 28)
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 066955e..bdc90a0 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -1119,6 +1119,7 @@ mt7996_mac_tx_free(struct mt7996_dev *dev, void *data, int len)
+ 	struct mt76_phy *phy3 = mdev->phys[MT_BAND2];
+ 	struct mt76_txwi_cache *txwi;
+ 	struct ieee80211_sta *sta = NULL;
++	struct mt76_wcid *wcid;
+ 	LIST_HEAD(free_list);
+ 	struct sk_buff *skb, *tmp;
+ 	void *end = data + len;
+@@ -1137,7 +1138,7 @@ mt7996_mac_tx_free(struct mt7996_dev *dev, void *data, int len)
+ 		mt76_queue_tx_cleanup(dev, phy3->q_tx[MT_TXQ_BE], false);
+ 	}
+ 
+-	if (WARN_ON_ONCE(le32_get_bits(tx_free[1], MT_TXFREE1_VER) < 4))
++	if (WARN_ON_ONCE(le32_get_bits(tx_free[1], MT_TXFREE1_VER) < 5))
+ 		return;
+ 
+ 	total = le32_get_bits(tx_free[0], MT_TXFREE0_MSDU_CNT);
+@@ -1153,10 +1154,9 @@ mt7996_mac_tx_free(struct mt7996_dev *dev, void *data, int len)
+ 		info = le32_to_cpu(*cur_info);
+ 		if (info & MT_TXFREE_INFO_PAIR) {
+ 			struct mt7996_sta *msta;
+-			struct mt76_wcid *wcid;
+ 			u16 idx;
+ 
+-			idx = FIELD_GET(MT_TXFREE_INFO_WLAN_ID, info);
++			idx = FIELD_GET(MT_TXFREE_INFO_MLD_ID, info);
+ 			wcid = rcu_dereference(dev->mt76.wcid[idx]);
+ 			sta = wcid_to_sta(wcid);
+ 			if (!sta)
+@@ -1169,10 +1169,21 @@ mt7996_mac_tx_free(struct mt7996_dev *dev, void *data, int len)
+ 					      &mdev->sta_poll_list);
+ 			spin_unlock_bh(&mdev->sta_poll_lock);
+ 			continue;
+-		}
++		} else if (info & MT_TXFREE_INFO_HEADER) {
++			u32 tx_retries = 0, tx_failed = 0;
++
++			if (!wcid)
++				continue;
++
++			tx_retries =
++				FIELD_GET(MT_TXFREE_INFO_COUNT, info) - 1;
++			tx_failed = tx_retries +
++				!!FIELD_GET(MT_TXFREE_INFO_STAT, info);
+ 
+-		if (info & MT_TXFREE_INFO_HEADER)
++			wcid->stats.tx_retries += tx_retries;
++			wcid->stats.tx_failed += tx_failed;
+ 			continue;
++		}
+ 
+ 		for (i = 0; i < 2; i++) {
+ 			msdu = (info >> (15 * i)) & MT_TXFREE_INFO_MSDU_ID;
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 41f0fa1..f152e76 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -997,6 +997,12 @@ static void mt7996_sta_statistics(struct ieee80211_hw *hw,
+ 	sinfo->txrate.flags = txrate->flags;
+ 	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_TX_BITRATE);
+ 
++	sinfo->tx_failed = msta->wcid.stats.tx_failed;
++	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_TX_FAILED);
++
++	sinfo->tx_retries = msta->wcid.stats.tx_retries;
++	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_TX_RETRIES);
++
+ 	sinfo->ack_signal = (s8)msta->ack_signal;
+ 	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_ACK_SIGNAL);
+ 
+-- 
+2.18.0
+

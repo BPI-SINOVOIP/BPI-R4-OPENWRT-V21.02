@@ -1,0 +1,30 @@
+From e24d476d4baca1aa3a32ac82ec0f1ea56cedf06c Mon Sep 17 00:00:00 2001
+From: Yi-Chia Hsieh <yi-chia.hsieh@mediatek.com>
+Date: Wed, 28 Jun 2023 05:07:43 +0800
+Subject: [PATCH 53/98] wifi: mt76: mt7996: Fix incorrect UWTBL_LEN_IN_DW
+ parameter
+
+The UWTBL length is 16 DW. Correct the len to 16 so that we can
+see full UWTBL when checking wtbl with debugfs.
+
+Signed-off-by: Yi-Chia Hsieh <yi-chia.hsieh@mediatek.com>
+---
+ mt7996/mtk_debug.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mt7996/mtk_debug.h b/mt7996/mtk_debug.h
+index 368f0bc..9718c2c 100644
+--- a/mt7996/mtk_debug.h
++++ b/mt7996/mtk_debug.h
+@@ -834,7 +834,7 @@ enum cipher_suit {
+ };
+ 
+ #define LWTBL_LEN_IN_DW			36
+-#define UWTBL_LEN_IN_DW			10
++#define UWTBL_LEN_IN_DW			16
+ 
+ #define MT_DBG_WTBL_BASE		0x820D8000
+ 
+-- 
+2.18.0
+

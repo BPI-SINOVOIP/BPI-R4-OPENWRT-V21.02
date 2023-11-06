@@ -1,0 +1,1742 @@
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/minissdp.c
+===================================================================
+--- a/minissdp.c
++++ b/minissdp.c
+@@ -39,6 +39,9 @@
+ #include "asyncsendto.h"
+ #include "codelength.h"
+ #include "macros.h"
++#ifdef ENABLE_WSC_SERVICE
++#include "wsc/wsc_common.h"
++#endif /* ENABLE_WSC_SERVICE */ 
+ 
+ #ifndef MIN
+ #define MIN(x,y) (((x)<(y))?(x):(y))
+@@ -592,6 +595,16 @@ SendSSDPResponse(int s, const struct soc
+ 	}
+ }
+ 
++#ifdef ENABLE_WSC_SERVICE
++static const char * const wfa_known_service_types[] =
++{
++	"upnp:rootdevice",
++	"urn:schemas-wifialliance-org:device:WFADevice:",	
++	"urn:schemas-wifialliance-org:service:WFAWLANConfig:",	
++	0
++};
++#endif /* ENABLE_WSC_SERVICE */
++
+ static struct {
+ 	const char * s;
+ 	const int version;
+@@ -816,6 +829,76 @@ SendSSDPNotifies(int s, const char * hos
+ #endif /* ENABLE_IPV6 */
+ }
+ 
++#ifdef ENABLE_WSC_SERVICE
++static void
++WSC_SendSSDPNotifies(int s, const char * host, unsigned short port,
++                 unsigned int lifetime)
++{
++	struct sockaddr_in sockname;
++	int l, n, i=0;
++	char bufr[512];
++
++	memset(&sockname, 0, sizeof(struct sockaddr_in));
++	sockname.sin_family = AF_INET;
++	sockname.sin_port = htons(SSDP_PORT);
++	sockname.sin_addr.s_addr = inet_addr(SSDP_MCAST_ADDR);
++
++	if (GETFLAG(ENABLEWPSMASK))
++	{
++		while(wfa_known_service_types[i])
++		{
++			l = snprintf(bufr, sizeof(bufr), 
++					"NOTIFY * HTTP/1.1\r\n"
++					"HOST:%s:%d\r\n"
++					"Cache-Control:max-age=%u\r\n"
++					"Location:http://%s:%d" WFA_ROOTDESC_PATH"\r\n"
++					/*"Server:miniupnpd/1.0 UPnP/1.0\r\n"*/
++					"Server: " MINIUPNPD_SERVER_STRING "\r\n"
++					"NT:%s%s\r\n"
++					"USN:%s::%s%s\r\n"
++					"NTS:ssdp:alive\r\n"
++					"\r\n",
++					SSDP_MCAST_ADDR, SSDP_PORT,
++					lifetime,
++					host, port,
++					wfa_known_service_types[i], (i==0?"":"1"),
++					wps_uuidvalue, wfa_known_service_types[i], (i==0?"":"1") );
++			if(l>=sizeof(bufr))
++			{
++				syslog(LOG_WARNING, "WSC_SendSSDPNotifies(): truncated output");
++				l = sizeof(bufr);
++			}
++
++			n = sendto(s, bufr, l, 0,
++				(struct sockaddr *)&sockname, sizeof(struct sockaddr_in) );
++
++			if(n < 0)
++			{
++				syslog(LOG_ERR, "sendto(udp_notify=%d, %s): %m", s, host);
++			}
++			i++;
++		}
++	}
++	else
++	{
++		;
++	}
++}
++
++void
++WSC_SendSSDPNotifies2(int * sockets,
++                  unsigned short port,
++                  unsigned int lifetime)
++{
++	int i;
++	struct lan_addr_s * lan_addr;
++	for(i=0, lan_addr = lan_addrs.lh_first; lan_addr != NULL; lan_addr = lan_addr->list.le_next, i++)
++	{
++		WSC_SendSSDPNotifies(sockets[i], lan_addr->str, port, lifetime);
++	}
++}
++#endif /* ENABLE_WSC_SERVICE */
++
+ /* SendSSDPNotifies2() sends SSDP NOTIFY packets on all interfaces
+  * for all destinations, all devices / services */
+ void
+@@ -1339,6 +1422,55 @@ ProcessSSDPData(int s, const char *bufr,
+ 					                 uuidvalue_wcd, delay);
+ 				}
+ 			}
++#ifdef ENABLE_WSC_SERVICE
++			if (GETFLAG(ENABLEWPSMASK))
++			{
++				for(i = 0; wfa_known_service_types[i]; i++)
++				{
++					l = (int)strlen(wfa_known_service_types[i]);
++					if(l<=st_len && (0 == memcmp(st, wfa_known_service_types[i], l)))
++					{
++						syslog(LOG_INFO, "WPS Single search found");					
++						SendSSDPResponse(s, sender,
++						                  st, st_len, "",
++						                  announced_host, WPS_PORT,
++#ifdef ENABLE_HTTPS
++										https_port,
++#endif
++										wfa_known_service_types[i], delay);
++						break;
++					}
++				}
++				/* Responds to request with ST: ssdp:all */
++				/* strlen("ssdp:all") == 8 */
++				if(st_len==8 && (0 == memcmp(st, "ssdp:all", 8)))
++				{
++					for(i=0; wfa_known_service_types[i]; i++)
++					{
++						l = (int)strlen(wfa_known_service_types[i]);
++						SendSSDPResponse(s, sender,
++						                  wfa_known_service_types[i], l, i==0?"":"1",
++						                  announced_host, WPS_PORT,
++#ifdef ENABLE_HTTPS
++										https_port,
++#endif
++										wfa_known_service_types[i], delay);
++					}
++				}
++				/* responds to request by UUID value */
++				l = (int)strlen(wps_uuidvalue);
++				if(l==st_len && (0 == memcmp(st, wps_uuidvalue, l)))
++				{
++					SendSSDPResponse(s, sender, st, st_len, "",
++					                  announced_host, WPS_PORT,
++#ifdef ENABLE_HTTPS
++									https_port,
++#endif
++									wfa_known_service_types[i], delay);
++				}
++
++			}
++#endif /* ENABLE_WSC_SERVICE */
+ 		}
+ 		else
+ 		{
+@@ -1481,6 +1613,49 @@ SendSSDPGoodbye(int * sockets, int n_soc
+ 	return ret;
+ }
+ 
++#ifdef ENABLE_WSC_SERVICE
++/* This will broadcast ssdp:byebye notifications to inform 
++ * the network that UPnP is going down. */
++int
++WSC_SendSSDPGoodbye(int * sockets, int n_sockets)
++{
++	struct sockaddr_in sockname;
++	int n, l;
++	int i, j;
++	char bufr[512];
++
++    memset(&sockname, 0, sizeof(struct sockaddr_in));
++    sockname.sin_family = AF_INET;
++    sockname.sin_port = htons(SSDP_PORT);
++    sockname.sin_addr.s_addr = inet_addr(SSDP_MCAST_ADDR);
++
++	for(j=0; j<n_sockets; j++)
++	{
++	    for(i=0; wfa_known_service_types[i]; i++)
++	    {
++	        l = snprintf(bufr, sizeof(bufr),
++	                 "NOTIFY * HTTP/1.1\r\n"
++	                 "HOST:%s:%d\r\n"
++	                 "NT:%s%s\r\n"
++	                 "USN:%s::%s%s\r\n"
++	                 "NTS:ssdp:byebye\r\n"
++	                 "\r\n",
++	                 SSDP_MCAST_ADDR, SSDP_PORT,
++					 wfa_known_service_types[i], (i==0?"":"1"),
++	                 wps_uuidvalue, wfa_known_service_types[i], (i==0?"":"1"));
++	        n = sendto(sockets[j], bufr, l, 0,
++	                   (struct sockaddr *)&sockname, sizeof(struct sockaddr_in) );
++			if(n < 0)
++			{
++				syslog(LOG_ERR, "sendto(udp_shutdown=%d): %m", sockets[j]);
++				return -1;
++			}
++		}
++	}
++	return 0;
++}
++#endif
++
+ /* SubmitServicesToMiniSSDPD() :
+  * register services offered by MiniUPnPd to a running instance of
+  * MiniSSDPd */
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/minissdp.h
+===================================================================
+--- a/minissdp.h
++++ b/minissdp.h
+@@ -28,6 +28,15 @@ SendSSDPNotifies2(int * sockets,
+                   unsigned int lifetime);
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++void
++WSC_SendSSDPNotifies2(int * sockets,
++                  unsigned short port,
++                  unsigned int lifetime);
++int
++WSC_SendSSDPGoodbye(int * sockets, int n);
++#endif /* ENABLE_WSC_SERVICE */
++
+ void
+ #ifdef ENABLE_HTTPS
+ ProcessSSDPRequest(int s,
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/miniupnpd.c
+===================================================================
+--- a/miniupnpd.c
++++ b/miniupnpd.c
+@@ -88,6 +88,88 @@
+ #endif
+ #include "commonrdr.h"
+ #include "upnputils.h"
++
++#ifdef ENABLE_WSC_SERVICE
++#include "wsc/wsc_common.h"
++//#include "wsc/wsc_netlink.h"
++#ifdef RT_DEBUG
++/* To be improved */
++int
++xml_print(const char * s, int len, FILE * f)
++{
++	int n = 0, i;
++	int elt_close = 0;
++	int c, indent = 0;
++
++	while(len > 0)
++	{
++		c = *(s++);	len--;
++		switch(c)
++		{
++		case '<':
++			if(len>0 && *s == '/')
++				elt_close++;
++			else if(len>0 && *s == '?')
++				elt_close = 1;
++			else
++				elt_close = 0;
++			if(elt_close!=1)
++			{
++				if(elt_close > 1)
++					indent--;
++				fputc('\n', f); n++;
++				for(i=indent; i>0; i--)
++					fputc(' ', f);
++				n += indent;
++			}
++			fputc(c, f); n++;
++			break;
++		case '>':
++			fputc(c, f); n++;
++			if(elt_close==1)
++			{
++				/*fputc('\n', f); n++; */
++				//elt_close = 0;
++				if(indent > 0)
++					indent--;
++			}
++			else if(elt_close == 0)
++				indent++;
++			break;
++		default:
++			fputc(c, f); n++;
++		}
++	}
++	return n;
++}
++
++int DescDump()
++{
++	char * Desc;
++	int DescLen;
++	char * s;
++	int l;
++
++	Desc = genWSCRootDesc((int *)&DescLen);
++	xml_print(Desc, DescLen, stdout);
++	free(Desc);
++	printf("\n-------------\n");
++
++	s = genWSC((int *)&l);
++	xml_print(s, l, stdout);
++	free(s);
++	printf("\n-------------\n");
++#ifdef ENABLE_EVENTS
++	s = getVarsWSC((int *)&l);
++	xml_print(s, l, stdout);
++	free(s);
++	printf("\n-------------\n");
++#endif /* ENABLE_EVENTS */
++	return 0;
++}
++#endif /* RT_DEBUG */
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef USE_IFACEWATCHER
+ #include "ifacewatcher.h"
+ #endif
+@@ -303,6 +385,10 @@ tomato_helper(void)
+ #endif  /* 1 (tomato) */
+ #endif	/* TOMATO */
+ 
++#ifdef ENABLE_WSC_SERVICE
++extern int wsc_debug_level;
++#endif /* ENABLE_WSC_SERVICE */
++
+ /* OpenAndConfHTTPSocket() :
+  * setup the socket used to handle incoming HTTP connections. */
+ static int
+@@ -1037,6 +1123,7 @@ parselanaddr(struct lan_addr_s * lan_add
+ 		}
+ 	}
+ #endif
++#ifndef ENABLE_WSC_SERVICE
+ 	if(lan_addr->ifname[0] != '\0')
+ 	{
+ 		lan_addr->index = if_nametoindex(lan_addr->ifname);
+@@ -1058,6 +1145,7 @@ parselanaddr(struct lan_addr_s * lan_add
+ 		syslog(LOG_NOTICE, "it is advised to use network interface name instead of %s", str);
+ 	}
+ #endif
++#endif /* ENABLE_WSC_SERVICE */
+ 	return 0;
+ parselan_error:
+ 	fprintf(stderr, "Error parsing address/mask (or interface name) : %s\n",
+@@ -1149,7 +1237,7 @@ static int
+ init(int argc, char * * argv, struct runtime_vars * v)
+ {
+ 	int i;
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 	int pid;
+ #endif
+ 	int debug_flag = 0;
+@@ -1186,7 +1274,12 @@ init(int argc, char * * argv, struct run
+ #endif /* DISABLE_CONFIG_FILE */
+ 
+ 	/* set initial values */
++#ifdef ENABLE_WSC_SERVICE
++	SETFLAG(ENABLEWPSMASK);
++#else
+ 	SETFLAG(ENABLEUPNPMASK);	/* UPnP is enabled by default */
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef ENABLE_IPV6
+ 	ipv6_bind_addr = in6addr_any;
+ #endif /* ENABLE_IPV6 */
+@@ -1530,6 +1623,18 @@ init(int argc, char * * argv, struct run
+ 				fprintf(stderr, "Option -%c takes one argument.\n", argv[i][1]);
+ 			serialnumber[SERIALNUMBER_MAX_LEN-1] = '\0';
+ 			break;
++#ifdef ENABLE_WSC_SERVICE
++		case 'M':
++			if(i+1 < argc)
++				strncpy(modelnumber, argv[++i], MODELNUMBER_MAX_LEN);
++			else
++				fprintf(stderr, "Option -%c takes one argument.\n", argv[i][1]);
++			modelnumber[MODELNUMBER_MAX_LEN-1] = '\0';
++			break;
++		case 'm':
++			i++;	/* discarding */
++			break;
++#else
+ 		case 'm':
+ 			if(i+1 < argc)
+ 				strncpy(modelnumber, argv[++i], MODELNUMBER_MAX_LEN);
+@@ -1537,12 +1642,26 @@ init(int argc, char * * argv, struct run
+ 				fprintf(stderr, "Option -%c takes one argument.\n", argv[i][1]);
+ 			modelnumber[MODELNUMBER_MAX_LEN-1] = '\0';
+ 			break;
++#endif /* ENABLE_WSC_SERVICE */
+ #ifdef ENABLE_NATPMP
+ 		case 'N':
+ 			/*enablenatpmp = 1;*/
+ 			SETFLAG(ENABLENATPMPMASK);
+ 			break;
+ #endif	/* ENABLE_NATPMP */
++#ifdef ENABLE_WSC_SERVICE
++		case 'G':
++			/*enable IGD service*/
++			SETFLAG(ENABLEUPNPMASK);
++			break;
++		case 'I':
++			i++; /* WPSInit will take care of it. */
++			break;
++		case 'n':
++			i++;
++			break;
++#endif /* ENABLE_WSC_SERVICE */
++
+ 		case 'U':
+ 			/*sysuptime = 1;*/
+ 			SETFLAG(SYSUPTIMEMASK);
+@@ -1566,6 +1685,7 @@ init(int argc, char * * argv, struct run
+ 				fprintf(stderr, "Option -%c takes one argument.\n", argv[i][1]);
+ 			break;
+ #ifdef ENABLE_IPV6
++#ifndef ENABLE_WSC_SERVICE
+ 		case 'I':
+ 			if(i+1 < argc)
+ 				ext_if_name6 = argv[++i];
+@@ -1573,6 +1693,7 @@ init(int argc, char * * argv, struct run
+ 				fprintf(stderr, "Option -%c takes one argument.\n", argv[i][1]);
+ 			break;
+ #endif
++#endif
+ #ifdef USE_PF
+ 		case 'q':
+ 			if(i+1 < argc)
+@@ -1623,7 +1744,7 @@ init(int argc, char * * argv, struct run
+ 			}
+ 			break;
+ #endif	/* ENABLE_NFQUEUE */
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 		case 'P':
+ 			if(i+1 < argc)
+ 				pidfilename = argv[++i];
+@@ -1773,13 +1894,17 @@ init(int argc, char * * argv, struct run
+ 		}
+ 	}
+ 
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 	if(debug_flag)
+ 	{
+ 		pid = getpid();
+ 	}
+ 	else
+ 	{
++#ifdef ENABLE_WSC_SERVICE
++		wsc_debug_level = RT_DBG_OFF;
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef USE_DAEMON
+ 		if(daemon(0, 0)<0) {
+ 			perror("daemon()");
+@@ -1816,7 +1941,7 @@ init(int argc, char * * argv, struct run
+ 		}
+ 	}
+ 
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 	if(checkforrunning(pidfilename) < 0)
+ 	{
+ 		syslog(LOG_ERR, "MiniUPnPd is already running. EXITING");
+@@ -1899,7 +2024,7 @@ init(int argc, char * * argv, struct run
+ #endif
+ #endif
+ 
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 	if(writepidfile(pidfilename, pid) < 0)
+ 		pidfilename = NULL;
+ #endif
+@@ -1946,9 +2071,14 @@ print_usage:
+ #endif
+ 			"\n"
+ 			/*"[-l logfile] " not functionnal */
++#ifdef ENABLE_WSC_SERVICE
++			"\t\t[-u uuid] [-s serial] [-M model_number] \n"
++#else
++			"\t\t[-u uuid] [-s serial] [-m model_number] \n"
++#endif /* ENABLE_WSC_SERVICE */
+ 			"\t\t[-u uuid] [-s serial] [-m model_number] \n"
+ 			"\t\t[-t notify_interval] "
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 			"[-P pid_filename] "
+ #endif
+ #ifdef ENABLE_MANUFACTURER_INFO_CONFIGURATION
+@@ -1968,7 +2098,7 @@ print_usage:
+ 			"\n"
+ 	        "\nNotes:\n\tThere can be one or several listening_ips.\n"
+ 	        "\tNotify interval is in seconds. Default is 30 seconds.\n"
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 			"\tDefault pid file is '%s'.\n"
+ #endif
+ 			"\tDefault config file is '%s'.\n"
+@@ -1992,6 +2122,10 @@ print_usage:
+ 			"\t-q sets the ALTQ queue in pf.\n"
+ 			"\t-T sets the tag name in pf.\n"
+ #endif
++#ifdef ENABLE_WSC_SERVICE
++			"\t-G turns on IGD Device service.\n"
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef ENABLE_NFQUEUE
+ 			"\t-Q sets the queue number that is used by NFQUEUE.\n"
+ 			"\t-n sets the name of the interface(s) that packets will arrive on.\n"
+@@ -2008,7 +2142,7 @@ print_usage:
+ 			"\t-v enables LOG_INFO messages, -vv LOG_DEBUG as well (default with -d)\n"
+ 			"\t-h / --help prints this help and quits.\n"
+ 	        "", argv[0], argv[0], argv[0],
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 			pidfilename,
+ #endif
+ 			DEFAULT_CONFIG);
+@@ -2048,6 +2182,10 @@ main(int argc, char * * argv)
+ 	int sifacewatcher = -1;
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++	int shttpwpsl = -1;
++#endif /* ENABLE_WSC_SERVICE */
++
+ 	int * snotify = NULL;
+ 	int addr_count;
+ 	LIST_HEAD(httplisthead, upnphttp) upnphttphead;
+@@ -2131,6 +2269,22 @@ main(int argc, char * * argv)
+ 	}
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++	if (GETFLAG(ENABLEWPSMASK))
++	{
++		if (WPSInit(argc, argv))
++		{
++			DBGPRINTF(RT_DBG_OFF, "WPSInit() ok !\n");
++		}
++		else
++		{
++			DBGPRINTF(RT_DBG_OFF, "WPSInit() failed !\n");
++			CLEARFLAG(ENABLEWPSMASK);
++			return 1;
++		}
++	}
++#endif /* ENABLE_WSC_SERVICE */
++
+ 	LIST_INIT(&upnphttphead);
+ #ifdef USE_MINIUPNPDCTL
+ 	LIST_INIT(&ctllisthead);
+@@ -2138,8 +2292,14 @@ main(int argc, char * * argv)
+ 
+ 	if(
+ #ifdef ENABLE_NATPMP
++#ifdef ENABLE_WSC_SERVICE
++		!GETFLAG(ENABLEWPSMASK) &&
++#endif /* ENABLE_WSC_SERVICE */
+ 	   !GETFLAG(ENABLENATPMPMASK) && !GETFLAG(ENABLEUPNPMASK)
+ #else
++#ifdef ENABLE_WSC_SERVICE
++		!GETFLAG(ENABLEWPSMASK) &&
++#endif /* ENABLE_WSC_SERVICE */
+ 	   !GETFLAG(ENABLEUPNPMASK)
+ #endif
+ 	   ) {
+@@ -2186,6 +2346,33 @@ main(int argc, char * * argv)
+ 		}
+ 	}
+ 
++#ifdef ENABLE_WSC_SERVICE
++	if (GETFLAG(ENABLEWPSMASK))
++	{
++		/* open socket for HTTP connections. Listen on the 1st LAN address */
++#ifdef ENABLE_IPV6
++		shttpwpsl = OpenAndConfHTTPSocket(&WPS_PORT, !GETFLAG(IPV6DISABLEDMASK));
++#else /* ENABLE_IPV6 */
++		shttpwpsl = OpenAndConfHTTPSocket(&WPS_PORT);
++#endif /* ENABLE_IPV6 */
++		if(shttpwpsl < 0)
++		{
++			syslog(LOG_ERR, "Failed to open socket for WPS. EXITING");
++			return 1;
++		}
++		syslog(LOG_ERR, "WPS listening on port %d", WPS_PORT);
++	
++		{
++			int flags;
++	
++			flags = fcntl(netlink_sock, F_GETFL, 0); 
++			if (flags == -1) 
++				return 1; 
++			fcntl(netlink_sock, F_SETFL, flags | O_NONBLOCK);
++		}		
++	}
++#endif /* ENABLE_WSC_SERVICE */
++
+ 	if(GETFLAG(ENABLEUPNPMASK))
+ 	{
+ 		unsigned short listen_port;
+@@ -2328,6 +2515,13 @@ main(int argc, char * * argv)
+ 	sctl = OpenAndConfCtlUnixSocket("/var/run/miniupnpd.ctl");
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++	if (GETFLAG(ENABLEWPSMASK))
++	{
++		DescDump();
++	}
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef ENABLE_NFQUEUE
+ 	if ( nfqueue != -1 && n_nfqix > 0) {
+ 		nfqh = OpenAndConfNFqueue();
+@@ -2491,7 +2685,15 @@ main(int argc, char * * argv)
+ 		{
+ 			/* the comparaison is not very precise but who cares ? */
+ 			if(timeofday.tv_sec >= (lasttimeofday.tv_sec + v.notify_interval))
+-			{
++			{			
++#ifdef ENABLE_WSC_SERVICE
++				{
++					// how often to verify the timeouts, in seconds
++					// default value is equal to notify interval
++					WscMsgQVerifyTimeouts(v.notify_interval);
++				}
++#endif
++
+ 				if (GETFLAG(ENABLEUPNPMASK))
+ 					SendSSDPNotifies2(snotify,
+ 				                  (unsigned short)v.port,
+@@ -2499,6 +2701,16 @@ main(int argc, char * * argv)
+ 					              (unsigned short)v.https_port,
+ #endif
+ 				                  v.notify_interval << 1);
++
++#ifdef ENABLE_WSC_SERVICE
++				if (GETFLAG(ENABLEWPSMASK))
++				{
++					WSC_SendSSDPNotifies2(snotify,
++						(unsigned short)WPS_PORT,
++						v.notify_interval << 1);
++				}
++#endif /* ENABLE_WSC_SERVICE */
++
+ 				memcpy(&lasttimeofday, &timeofday, sizeof(struct timeval));
+ 				timeout.tv_sec = v.notify_interval;
+ 				timeout.tv_usec = 0;
+@@ -2582,6 +2794,20 @@ main(int argc, char * * argv)
+ 			FD_SET(shttpl, &readset);
+ 			max_fd = MAX( max_fd, shttpl);
+ 		}
++
++#ifdef ENABLE_WSC_SERVICE
++		if(shttpwpsl >= 0)
++		{
++			FD_SET(shttpwpsl, &readset);
++			max_fd = MAX(max_fd, shttpwpsl);
++		}
++		if(netlink_sock >= 0)
++		{
++			FD_SET(netlink_sock, &readset);
++			max_fd = MAX(max_fd, netlink_sock);
++		}
++#endif /* ENABLE_WSC_SERVICE */
++
+ #if defined(V6SOCKETS_ARE_V6ONLY) && defined(ENABLE_IPV6)
+ 		if (shttpl_v4 >= 0)
+ 		{
+@@ -2911,13 +3137,64 @@ main(int argc, char * * argv)
+ 		{
+ 			if(e->socket >= 0)
+ 			{
+-				if(FD_ISSET(e->socket, &readset) ||
++				if((FD_ISSET(e->socket, &readset) ||
+ 				   FD_ISSET(e->socket, &writeset))
++#ifdef ENABLE_WSC_SERVICE
++					&& (e->state != DO_NOTHING_IN_MAIN_LOOP)
++#endif
++				)
+ 				{
+ 					Process_upnphttp(e);
+ 				}
+ 			}
+ 		}
++
++#ifdef ENABLE_WSC_SERVICE
++		if (GETFLAG(ENABLEWPSMASK))
++		{
++			/* process incoming HTTP connections */
++			if(shttpwpsl >= 0 && FD_ISSET(shttpwpsl, &readset))
++			{
++				int shttpwps;
++				socklen_t clientnamelen;
++				struct sockaddr_in clientname;
++				clientnamelen = sizeof(struct sockaddr_in);
++				shttpwps = accept(shttpwpsl, (struct sockaddr *)&clientname, &clientnamelen);
++				if (shttpwps<0)
++				{
++					syslog(LOG_ERR, "accept(shttpwpsl): %m");
++				}
++				else
++				{
++					struct upnphttp * tmp = 0;
++					syslog(LOG_ERR, "HTTP connection from %s:%d",
++						inet_ntoa(clientname.sin_addr),
++						ntohs(clientname.sin_port) );
++					/* Create a new upnphttp object and add it to
++					 * the active upnphttp object list */
++					tmp = New_upnphttp(shttpwps);
++					if(tmp)
++					{
++						tmp->clientaddr = clientname.sin_addr;
++						LIST_INSERT_HEAD(&upnphttphead, tmp, entries);
++					}
++					else
++					{
++						syslog(LOG_ERR, "New_upnphttp() failed");
++						close(shttpwps);
++						shttpwps = -1;
++					}
++				}
++			}
++
++			if(FD_ISSET(netlink_sock, &readset))
++			{
++				DBGPRINTF(RT_DBG_LOUD, "(%s):netlink socket data is available now.\n", __FUNCTION__);
++				wscNLSockRecv(netlink_sock);
++			}
++		}
++#endif /* ENABLE_WSC_SERVICE */
++
+ 		/* process incoming HTTP connections */
+ 		if(shttpl >= 0 && FD_ISSET(shttpl, &readset))
+ 		{
+@@ -3036,6 +3313,18 @@ shutdown:
+ 		}
+ 	}
+ #endif
++#ifdef ENABLE_WSC_SERVICE
++	if(shttpwpsl >= 0)
++	{
++		close(shttpwpsl);
++		shttpwpsl = -1;
++	}
++	if(netlink_sock >= 0)
++	{
++		close(netlink_sock);
++		netlink_sock = -1;
++	}
++#endif /* ENABLE_WSC_SERVICE */
+ #if defined(ENABLE_IPV6) && defined(ENABLE_PCP)
+ 	if(spcp_v6 >= 0)
+ 	{
+@@ -3055,6 +3344,22 @@ shutdown:
+ 	}
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++	if (GETFLAG(ENABLEWPSMASK))
++	{
++		if(WSC_SendSSDPGoodbye(snotify, addr_count) < 0)
++		{
++			syslog(LOG_ERR, "Failed to broadcast good-bye notifications for WSC");
++		}
++	}
++	
++	if (!(GETFLAG(ENABLEUPNPMASK)))
++	{
++		for(i=0; i<addr_count; i++)
++			close(snotify[i]);
++	}
++#endif /* ENABLE_WSC_SERVICE */
++
+ 	if (GETFLAG(ENABLEUPNPMASK))
+ 	{
+ #ifndef ENABLE_IPV6
+@@ -3066,7 +3371,7 @@ shutdown:
+ 	}
+ 
+ 	/* remove pidfile */
+-#ifndef NO_BACKGROUND_NO_PIDFILE
++#if defined(ENABLE_WSC_SERVICE) || !defined(NO_BACKGROUND_NO_PIDFILE)
+ 	if(pidfilename && (unlink(pidfilename) < 0))
+ 	{
+ 		syslog(LOG_ERR, "Failed to remove pidfile %s: %m", pidfilename);
+@@ -3096,6 +3401,17 @@ shutdown:
+ 	freeoptions();
+ #endif
+ 	closelog();
++#ifdef ENABLE_WSC_SERVICE
++	CLEARFLAG(ENABLEWPSMASK);
++	DBGPRINTF(RT_DBG_INFO, "wscSystemStop()...\n");
++	wscSystemStop();
++	
++#if 1 // def MULTIPLE_CARD_SUPPORT
++	unlink(pid_file_path);
++#else
++	unlink(DEFAULT_PID_FILE_PATH);
++#endif // MULTIPLE_CARD_SUPPORT //
++#endif /* ENABLE_WSC_SERVICE */
+ 	return 0;
+ }
+ 
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/miniupnpdpath.h
+===================================================================
+--- a/miniupnpdpath.h
++++ b/miniupnpdpath.h
+@@ -14,6 +14,13 @@
+ 
+ #define ROOTDESC_PATH 		"/rootDesc.xml"
+ 
++#ifdef ENABLE_WSC_SERVICE
++#define WFA_ROOTDESC_PATH 	"/WFADeviceDesc.xml"
++#define WSC_PATH			"/WFAWLANConfigSCPD.xml"
++#define WSC_CONTROLURL		"/control"
++#define WSC_EVENTURL		"/event"
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef HAS_DUMMY_SERVICE
+ #define DUMMY_PATH			"/dummy.xml"
+ #endif
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpdescgen.c
+===================================================================
+--- a/upnpdescgen.c
++++ b/upnpdescgen.c
+@@ -23,7 +23,15 @@
+ #include "upnpurns.h"
+ #include "getconnstatus.h"
+ 
+-
++#ifdef ENABLE_WSC_SERVICE
++#include "upnphttp.h"		/* For wscLocalDevice */
++#include "wsc/wsc_upnp.h"
++#endif /* ENABLE_WSC_SERVICE */
++
++#ifdef ENABLE_WSC_SERVICE
++//Default WSC service magical value
++#define WSCSERVICE_MAGICALVALUE (247)
++#endif
+ /* Event magical values codes */
+ #define SETUPREADY_MAGICALVALUE (248)
+ #define CONNECTIONSTATUS_MAGICALVALUE (249)
+@@ -34,6 +42,10 @@
+ #define EXTERNALIPADDRESS_MAGICALVALUE (254)
+ #define DEFAULTCONNECTIONSERVICE_MAGICALVALUE (255)
+ 
++#ifdef ENABLE_WSC_SERVICE
++/* The data structure used the save the local Wsc UPnP Device. */
++//extern struct upnpDevice wscLocalDevice;
++#endif /* ENABLE_WSC_SERVICE */
+ 
+ static const char * const upnptypes[] =
+ {
+@@ -41,6 +53,9 @@ static const char * const upnptypes[] =
+ 	"boolean",
+ 	"ui2",
+ 	"ui4",
++#ifdef ENABLE_WSC_SERVICE //Mediatek :  be care that original code 4 => bin.base64, but portig code 4 => ui1
++	"ui1",
++#endif
+ 	"bin.base64"
+ };
+ 
+@@ -94,7 +109,11 @@ static const char * const upnpallowedval
+  * ERROR_IP_CONFIGURATION
+  * ERROR_UNKNOWN */
+ 	0,
+-	"",		/* 27 */
++	"",		/* 27 */	
++#ifdef ENABLE_WSC_SERVICE
++	0,
++	"0",	/* 29 */
++#endif /* ENABLE_WSC_SERVICE */
+ 	0
+ };
+ 
+@@ -132,6 +151,13 @@ static const char * magicargname[] = {
+ #endif /* ENABLE_DP_SERVICE */
+ };
+ 
++/* it seems fine to use xmlver instead of wps_xmlver */
++#ifdef ENABLE_WSC_SERVICE
++/* it seems fine to use xmlver instead of wps_xmlver in service description */
++static const char wps_xmlver[] = 
++	"<?xml version=\"1.0\" encoding=\"utf-8\"?>";
++#endif /* ENABLE_WSC_SERVICE */
++
+ static const char xmlver[] =
+ 	"<?xml version=\"1.0\"?>\r\n";
+ static const char root_service[] =
+@@ -317,6 +343,41 @@ static const struct XMLElt rootDesc[] =
+ 	{0, 0}
+ };
+ 
++#ifdef ENABLE_WSC_SERVICE
++static const struct XMLElt WFArootDesc[] =
++{
++/* 0 */
++	{root_device, INITHELPER(1,2)},
++	{"specVersion", INITHELPER(3,2)},
++	{"device", INITHELPER(5,11)},
++
++	{"/major", "1"},
++	{"/minor", "0"},
++/* 5 */
++	{"/deviceType", "urn:schemas-wifialliance-org:device:WFADevice:1"},
++	{"/friendlyName", WLANDEV_FRIENDLYNAME},
++	{"/manufacturer", WLANDEV_MANUFACTURER},
++	{"/manufacturerURL", WLANDEV_MANUFACTURERURL},
++	{"/modelDescription", WLANDEV_MODELDESCRIPTION},
++	{"/modelName", WLANDEV_MODELNAME},
++	{"/modelNumber", WLANDEV_MODELNUMBER},
++	{"/modelURL", WLANDEV_MODELURL},
++	{"/serialNumber", wps_serialnumber},
++	{"/UDN", wps_uuidvalue},
++/* 15 */	
++	{"serviceList", INITHELPER(16,1)},
++/* 16 */
++	{"service", INITHELPER(17,5)},
++/* 17 */	
++	{"/serviceType", "urn:schemas-wifialliance-org:service:WFAWLANConfig:1"},
++	{"/serviceId", "urn:wifialliance-org:serviceId:WFAWLANConfig1"},
++	{"/SCPDURL", "WFAWLANConfigSCPD.xml"},
++	{"/controlURL", "control"},
++	{"/eventSubURL", "event"},
++	{0, 0}
++};
++#endif
++
+ /* WANIPCn.xml */
+ /* see UPnP_IGD_WANIPConnection 1.0.pdf
+ static struct XMLElt scpdWANIPCn[] =
+@@ -789,7 +850,12 @@ static const struct stateVar DPVars[] =
+ 	{"A_ARG_TYPE_ACL", 0},
+ 	{"A_ARG_TYPE_IdentityList", 0},
+ 	{"A_ARG_TYPE_Identity", 0},
++	//Mediatek :	be care origianl ver 1.2 poritng , 4 => ui1, 5 => bin.base64
++#ifdef ENABLE_WSC_SERVICE
++	{"A_ARG_TYPE_Base64", 5},
++#else
+ 	{"A_ARG_TYPE_Base64", 4},
++#endif
+ 	{"A_ARG_TYPE_String", 0},
+ 	{0, 0}
+ };
+@@ -798,6 +864,139 @@ static const struct serviceDesc scpdDP =
+ { DPActions, DPVars };
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++static const struct argument GetDeviceInfoArgs[] =
++{
++	{2, 3}, /* out */
++	{0, 0}
++};
++
++static const struct argument PutMessageArgs[] =
++{
++	{1, 1}, /* in */
++	{2, 2}, /* out */
++	{0, 0}
++};
++
++static const struct argument GetAPSettingsArgs[] =
++{
++	{1, 0}, /* in */
++	{2, 4}, /* out */
++	{0, 0}
++};
++
++
++static const struct argument SetAPSettingsArgs[] =
++{
++	{1, 4}, /* in */
++	{0, 0}
++};
++
++static const struct argument DelAPSettingsArgs[] =
++{
++	{1, 4}, /* in */
++	{0, 0}
++};
++
++static const struct argument GetSTASettingsArgs[] =
++{
++	{1, 0}, /* in */
++	{2, 6}, /* out */
++	{0, 0}
++};
++
++static const struct argument SetSTASettingsArgs[] =
++{
++	{2, 6}, /* in */
++	{0, 0}
++};
++
++static const struct argument DelSTASettingsArgs[] =
++{
++	{1, 6}, /* in */
++	{0, 0}
++};
++
++static const struct argument PutWLANResponseArgs[] =
++{
++	{1, 0}, /* in */
++	{1, 9}, /* in */
++	{1, 10}, /* in */
++	{0, 0}
++};
++
++static const struct argument RebootAPArgs[] =
++{
++	{1, 4}, /* in */
++	{0, 0}
++};
++
++static const struct argument ResetAPArgs[] =
++{
++	{1, 0}, /* in */
++	{0, 0}
++};
++
++static const struct argument RebootSTAArgs[] =
++{
++	{1, 6}, /* in */
++	{0, 0}
++};
++
++static const struct argument ResetSTAArgs[] =
++{
++	{1, 0}, /* in */
++	{0, 0}
++};
++
++static const struct argument SetSelectedRegistrarArgs[] =
++{
++	{1, 0}, /* in */
++	{0, 0}
++};
++
++static const struct action WSCActions[] =
++{
++	{"DelAPSettings", DelAPSettingsArgs},
++	{"DelSTASettings", DelSTASettingsArgs},
++	{"GetAPSettings", GetAPSettingsArgs},
++	{"GetDeviceInfo", GetDeviceInfoArgs},
++	{"GetSTASettings", GetSTASettingsArgs},
++	{"PutMessage", PutMessageArgs},
++	{"PutWLANResponse", PutWLANResponseArgs},
++	{"RebootAP", RebootAPArgs},
++	{"RebootSTA", RebootSTAArgs},
++	{"ResetAP", ResetAPArgs},
++	{"ResetSTA", ResetSTAArgs},
++	{"SetAPSettings", SetAPSettingsArgs},
++	{"SetSelectedRegistrar", SetSelectedRegistrarArgs},
++	{"SetSTASettings", SetSTASettingsArgs},
++	{0, 0}
++};
++
++/* See WFA WLANConfig 1.0.pdf */
++static const struct stateVar WSCVars[] =
++{
++	{"Message", 5, 0, 0, 0},	/* Required */
++	{"InMessage", 5, 0, 0, 0},	/* Required */
++	{"OutMessage", 5, 0, 0, 0},	/* Required */
++	{"DeviceInfo", 5, 0, 0, 0},	/* Required */
++	{"APSettings", 5, 0, 0, 0},	   /* Conditional */
++	{"WLANEvent", 5|0x80, 0, 0, WSCSERVICE_MAGICALVALUE},    /* Conditional */ /*Mediatek :  change magic value from 252 to WSCSERVICE_MAGICALVALUE*/
++	{"STASettings", 5, 0, 0, 0},    /* Conditional */
++	{"APStatus", 4|0x80, 0, 0, WSCSERVICE_MAGICALVALUE},  /* Conditional */
++	{"STAStatus", 4|0x80, 0, 0, WSCSERVICE_MAGICALVALUE},    /* Conditional */
++	{"WLANEventType", 4, 0, 0, 0},    /* Conditional */
++	{"WLANEventMAC", 0, 0, 0, 0},    /* Conditional */
++	{"WLANResponse", 5, 0, 0, 0},    /* Conditional */
++	{0, 0}
++};
++
++static const struct serviceDesc scpdWSC =
++{ WSCActions, WSCVars };
++#endif /* ENABLE_WSC_SERVICE */
++
++
+ /* strcat_str()
+  * concatenate the string and use realloc to increase the
+  * memory buffer if needed. */
+@@ -997,6 +1196,31 @@ genXML(char * str, int * len, int * tmpl
+ 	}
+ }
+ 
++#ifdef ENABLE_WSC_SERVICE
++/* genRootDesc() :
++ * - Generate the root description of the UPnP device.
++ * - the len argument is used to return the length of
++ *   the returned string. 
++ * - tmp_uuid argument is used to build the uuid string */
++char *
++genWSCRootDesc(int * len)
++{
++	char * str;
++	int tmplen;
++
++	tmplen = 2048;
++	str = (char *)malloc(tmplen);
++	if(str == NULL)
++		return NULL;
++	*len = strlen(wps_xmlver);
++	/*strcpy(str, xmlver); */
++	memcpy(str, wps_xmlver, *len + 1);
++	str = genXML(str, len, &tmplen, WFArootDesc);
++	str[*len] = '\0';
++	return str;
++}
++#endif /* ENABLE_WSC_SERVICE */
++
+ /* genRootDesc() :
+  * - Generate the root description of the UPnP device.
+  * - the len argument is used to return the length of
+@@ -1186,6 +1410,14 @@ genWANIPCn(int * len)
+ 	return genServiceDesc(len, &scpdWANIPCn);
+ }
+ 
++#ifdef ENABLE_WSC_SERVICE
++char *
++genWSC(int * len)
++{
++	return genServiceDesc(len, &scpdWSC);
++}
++#endif /* ENABLE_WSC_SERVICE */
++
+ /* genWANCfg() :
+  * Generate the WANInterfaceConfig xml description. */
+ char *
+@@ -1227,6 +1459,10 @@ genEventVars(int * len, const struct ser
+ 	char * str;
+ 	int tmplen;
+ 	tmplen = 512;
++#ifdef ENABLE_WSC_SERVICE
++	int var_index = 0;	
++#endif /* ENABLE_WSC_SERVICE */
++
+ 	str = (char *)malloc(tmplen);
+ 	if(str == NULL)
+ 		return NULL;
+@@ -1242,6 +1478,16 @@ genEventVars(int * len, const struct ser
+ 			switch(v->ieventvalue) {
+ 			case 0:
+ 				break;
++				
++#ifdef ENABLE_WSC_SERVICE
++			case WSCSERVICE_MAGICALVALUE:	/* Default WSC service magical value */
++				printf("update Event Vars :%s == %s\n", v->name, wscLocalDevice.services.StateVarVal[var_index]);
++				/* WSC_EVENT_WLANEVENT : 0; WSC_EVENT_APSTATUS : 1; WSC_EVENT_STASTATUS : 2 */
++				str = strcat_str(str, len, &tmplen, wscLocalDevice.services.StateVarVal[var_index]);
++				var_index += 1;
++				break;
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef ENABLE_DP_SERVICE
+ 			case SETUPREADY_MAGICALVALUE:
+ 				/* always ready for setup */
+@@ -1367,4 +1613,15 @@ getVarsDP(int * l)
+ }
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++char *
++getVarsWSC(int * l)
++{
++
++	return genEventVars(l,
++	                    &scpdWSC
++	                    /*,WscServiceTypeStr*/);
++}
++#endif /* ENABLE_WSC_SERVICE */
++
+ #endif /* ENABLE_EVENTS */
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpdescgen.h
+===================================================================
+--- a/upnpdescgen.h
++++ b/upnpdescgen.h
+@@ -55,6 +55,17 @@ struct stateVar {
+ char *
+ genRootDesc(int * len);
+ 
++#ifdef ENABLE_WSC_SERVICE
++/* The data structure used the save the local Wsc UPnP Device. */
++//extern struct upnpDevice wscLocalDevice;	
++
++char *
++genWSCRootDesc(int * len);
++
++char *
++genWSC(int * len);
++#endif /* ENABLE_WSC_SERVICE */
++
+ /* for the two following functions */
+ char *
+ genWANIPCn(int * len);
+@@ -96,6 +107,10 @@ getVars6FC(int * len);
+ char *
+ getVarsDP(int * len);
+ #endif
++#ifdef ENABLE_WSC_SERVICE
++char *
++getVarsWSC(int * len);
++#endif /* ENABLE_WSC_SERVICE */
+ #endif /* ENABLE_EVENTS */
+ 
+ #endif
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpdescstrings.h
+===================================================================
+--- a/upnpdescstrings.h
++++ b/upnpdescstrings.h
+@@ -37,5 +37,17 @@
+ #define WANCDEV_UPC					"000000000000"
+ /* UPC is 12 digit (barcode) */
+ 
++#ifdef ENABLE_WSC_SERVICE
++#define WLANDEV_FRIENDLYNAME		"MediatekAPS"
++#define WLANDEV_MANUFACTURER		"Mediatek Technology, Corp."
++#define WLANDEV_MANUFACTURERURL		"http://www.mediatek.com"
++#define WLANDEV_MODELNAME			"Mediatek Wireless Access Point"
++#define WLANDEV_MODELDESCRIPTION	"Mediatek AP WPS device"
++//Mediatek :  need to modified
++#define WLANDEV_MODELNUMBER			"RT3062"
++#define WLANDEV_MODELURL			"http://www.mediatek.com"
++//#define WLANDEV_UPC					"MINIUPNPD"
++#endif /* ENABLE_WSC_SERVICE */
++
+ #endif
+ 
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpevents.c
+===================================================================
+--- a/upnpevents.c
++++ b/upnpevents.c
+@@ -32,6 +32,11 @@
+ #include "upnpdescgen.h"
+ #include "upnputils.h"
+ 
++#ifdef ENABLE_WSC_SERVICE
++#include "wsc/wsc_common.h"
++#include "wsc/wsc_upnp.h"/* for wscLocalDevice */
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef ENABLE_EVENTS
+ /*enum subscriber_service_enum {
+  EWanCFG = 1,
+@@ -39,6 +44,7 @@
+  EL3F
+ };*/
+ 
++#if 0
+ /* stuctures definitions */
+ struct subscriber {
+ 	LIST_ENTRY(subscriber) entries;
+@@ -49,6 +55,7 @@ struct subscriber {
+ 	char uuid[42];
+ 	char callback[];
+ };
++#endif
+ 
+ struct upnp_event_notify {
+ 	LIST_ENTRY(upnp_event_notify) entries;
+@@ -75,7 +82,10 @@ struct upnp_event_notify {
+ };
+ 
+ /* prototypes */
+-static void
++#ifndef ENABLE_WSC_SERVICE
++static
++#endif
++void
+ upnp_event_create_notify(struct subscriber * sub);
+ 
+ /* Subscriber list */
+@@ -110,6 +120,10 @@ newSubscriber(const char * eventurl, con
+ 	else if(strcmp(eventurl, DP_EVENTURL)==0)
+ 		tmp->service = EDP;
+ #endif
++#ifdef ENABLE_WSC_SERVICE
++	else if(strcmp(eventurl, WSC_EVENTURL)==0)
++		tmp->service = EWSC;
++#endif /* ENABLE_WSC_SERVICE */
+ 	else {
+ 		free(tmp);
+ 		return NULL;
+@@ -148,7 +162,14 @@ newSubscriber(const char * eventurl, con
+ 			}
+ 		}
+ 		if(status != uuid_s_ok) {
+-			/* make a dummy uuid */
++			/* make a dummy uuid */	
++#ifdef ENABLE_WSC_SERVICE
++			if (tmp->service == EWSC)
++			{
++				strncpy(tmp->uuid, wps_uuidvalue, sizeof(tmp->uuid));
++			}
++			else
++#endif /* ENABLE_WSC_SERVICE */
+ 			strncpy(tmp->uuid, uuidvalue_igd, sizeof(tmp->uuid));
+ 			tmp->uuid[sizeof(tmp->uuid)-1] = '\0';
+ 			snprintf(tmp->uuid+sizeof(tmp->uuid)-5, 5, "%04lx", random() & 0xffff);
+@@ -156,6 +177,13 @@ newSubscriber(const char * eventurl, con
+ 	}
+ #else
+ 	/* make a dummy uuid */
++#ifdef ENABLE_WSC_SERVICE
++	if (tmp->service == EWSC)
++	{
++		strncpy(tmp->uuid, wps_uuidvalue, sizeof(tmp->uuid));
++	}
++	else
++#endif /* ENABLE_WSC_SERVICE */
+ 	strncpy(tmp->uuid, uuidvalue_igd, sizeof(tmp->uuid));
+ 	tmp->uuid[sizeof(tmp->uuid)-1] = '\0';
+ 	snprintf(tmp->uuid+sizeof(tmp->uuid)-5, 5, "%04lx", random() & 0xffff);
+@@ -233,6 +261,15 @@ void
+ upnp_event_var_change_notify(enum subscriber_service_enum service)
+ {
+ 	struct subscriber * sub;
++	
++#ifdef RT_DEBUG
++	sub = subscriberlist.lh_first;
++	if (sub == NULL)
++	{
++		DBGPRINTF(RT_DBG_INFO, "\n--------------subscriberlist is empty !!!--------------\n");
++	}
++#endif /* RT_DEBUG */
++
+ 	for(sub = subscriberlist.lh_first; sub != NULL; sub = sub->entries.le_next) {
+ 		if(sub->service == service && sub->notify == NULL)
+ 			upnp_event_create_notify(sub);
+@@ -240,7 +277,10 @@ upnp_event_var_change_notify(enum subscr
+ }
+ 
+ /* create and add the notify object to the list */
+-static void
++#ifndef ENABLE_WSC_SERVICE
++static 
++#endif
++void
+ upnp_event_create_notify(struct subscriber * sub)
+ {
+ 	struct upnp_event_notify * obj;
+@@ -418,6 +458,11 @@ static void upnp_event_prepare(struct up
+ 		return;
+ 	}
+ 	switch(obj->sub->service) {
++#ifdef ENABLE_WSC_SERVICE
++	case EWSC:
++		xml = getVarsWSC(&l);
++		break;
++#endif /* ENABLE_WSC_SERVICE */
+ 	case EWanCFG:
+ 		xml = getVarsWANCfg(&l);
+ 		break;
+@@ -443,7 +488,12 @@ static void upnp_event_prepare(struct up
+ 		xml = NULL;
+ 		l = 0;
+ 	}
++//Mediatek : Need to increase the buffer, or the payload may be cut!
++#ifdef ENABLE_WSC_SERVICE
++	obj->buffersize = 2000;// 1024 ==> 2000 (confirmed : 1024 is not enough)
++#else
+ 	obj->buffersize = 1024;
++#endif
+ 	for (;;) {
+ 		obj->buffer = malloc(obj->buffersize);
+ 		if(!obj->buffer) {
+@@ -686,5 +736,28 @@ void write_events_details(int s) {
+ }
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++int 
++WscDevSubscriberSearch(
++	char *SubsId,
++	struct subscriber ** sub)
++{
++	int found = 0;
++
++	*sub = subscriberlist.lh_first;
++
++	while (*sub)
++	{
++		if (memcmp(SubsId, (*sub)->uuid, 41) == 0)
++		{
++			found = 1;
++			break;
++		}
++		*sub = (*sub)->entries.le_next;
++	}
++
++	return found;
++}
++#endif /* ENABLE_WSC_SERVICE */
+ #endif
+ 
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpevents.h
+===================================================================
+--- a/upnpevents.h
++++ b/upnpevents.h
+@@ -25,6 +25,21 @@ enum subscriber_service_enum {
+ #ifdef ENABLE_DP_SERVICE
+  EDP,
+ #endif
++#ifdef ENABLE_WSC_SERVICE
++ EWSC,
++#endif
++};
++
++//Mediatek : move from to upnpevents.c
++/* stuctures definitions */
++struct subscriber {
++	LIST_ENTRY(subscriber) entries;
++	struct upnp_event_notify * notify;
++	time_t timeout;
++	uint32_t seq;
++	enum subscriber_service_enum service;
++	char uuid[42];
++	char callback[];
+ };
+ 
+ void
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpglobalvars.c
+===================================================================
+--- a/upnpglobalvars.c
++++ b/upnpglobalvars.c
+@@ -64,6 +64,11 @@ char uuidvalue_wan[] = "uuid:00000000-00
+ char uuidvalue_wcd[] = "uuid:00000000-0000-0000-0000-000000000000";
+ char serialnumber[SERIALNUMBER_MAX_LEN] = "00000000";
+ 
++#ifdef ENABLE_WSC_SERVICE
++char wps_uuidvalue[] = "uuid:00000000-0000-0000-0000-000000000000";
++char wps_serialnumber[SERIALNUMBER_MAX_LEN] = "87654321";
++#endif /* ENABLE_WSC_SERVICE */
++
+ char modelnumber[MODELNUMBER_MAX_LEN] = "1";
+ 
+ /* presentation url :
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpglobalvars.h
+===================================================================
+--- a/upnpglobalvars.h
++++ b/upnpglobalvars.h
+@@ -31,6 +31,9 @@ extern uint16_t ext_stun_port;
+ extern const char * lease_file;
+ #endif
+ 
++#define FILE_PATH_LEN	256
++extern char pid_file_path[FILE_PATH_LEN];
++
+ /* forced ip address to use for this interface
+  * when NULL, getifaddr() is used */
+ extern const char * use_ext_ip_addr;
+@@ -86,6 +89,13 @@ extern int runtime_flags;
+ 
+ #define EXTIPRESERVEDIGNOREMASK 0x2000
+ 
++#ifdef ENABLE_WSC_SERVICE
++#define ENABLEWPSMASK		0x8000
++
++extern char wps_uuidvalue[];
++extern char wps_serialnumber[];
++#endif /* ENABLE_WSC_SERVICE */
++
+ #define SETFLAG(mask)	runtime_flags |= mask
+ #define GETFLAG(mask)	(runtime_flags & mask)
+ #define CLEARFLAG(mask)	runtime_flags &= ~mask
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnphttp.c
+===================================================================
+--- a/upnphttp.c
++++ b/upnphttp.c
+@@ -749,6 +749,10 @@ ProcessHttpQuery_upnphttp(struct upnphtt
+ 		char * (* f)(int *);
+ 	} path_desc[] = {
+ 		{ ROOTDESC_PATH, genRootDesc},
++#ifdef ENABLE_WSC_SERVICE
++		{ WFA_ROOTDESC_PATH, genWSCRootDesc},
++		{ WSC_PATH, genWSC},
++#endif
+ 		{ WANIPC_PATH, genWANIPCn},
+ 		{ WANCFG_PATH, genWANCfg},
+ #ifdef HAS_DUMMY_SERVICE
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnphttp.h
+===================================================================
+--- a/upnphttp.h
++++ b/upnphttp.h
+@@ -18,11 +18,19 @@
+ #include <openssl/ssl.h>
+ #endif /* ENABLE_HTTPS */
+ 
++#ifdef ENABLE_WSC_SERVICE
++#include "wsc/wsc_upnp.h"
++#endif
++
+ #define UPNP_VERSION_STRING "UPnP/" UPNP_VERSION_MAJOR_STR "." UPNP_VERSION_MINOR_STR
+ 
+ /* server: HTTP header returned in all HTTP responses : */
+ #define MINIUPNPD_SERVER_STRING	OS_VERSION " " UPNP_VERSION_STRING " MiniUPnPd/" MINIUPNPD_VERSION
+ 
++#ifdef ENABLE_WSC_SERVICE
++struct upnpDevice wscLocalDevice;	// The data structure used the save the local Wsc UPnP Device.
++#endif
++
+ /*
+  states :
+   0 - waiting for data to read
+@@ -34,7 +42,10 @@ enum httpStates {
+ 	EWaitingForHttpRequest = 0,
+ 	EWaitingForHttpContent,
+ 	ESendingContinue,
+-	ESendingAndClosing,
++	ESendingAndClosing,	
++#ifdef ENABLE_WSC_SERVICE
++	DO_NOTHING_IN_MAIN_LOOP,
++#endif
+ 	EToDelete = 100
+ };
+ 
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpsoap.c
+===================================================================
+--- a/upnpsoap.c
++++ b/upnpsoap.c
+@@ -45,7 +45,10 @@ static int is_numeric(const char * s)
+ 	return 1;
+ }
+ 
+-static void
++#ifndef ENABLE_WSC_SERVICE
++static
++#endif
++void
+ BuildSendAndCloseSoapResp(struct upnphttp * h,
+                           const char * body, int bodylen)
+ {
+@@ -2137,6 +2140,31 @@ GetPinholePackets(struct upnphttp * h, c
+ }
+ #endif
+ 
++#ifdef ENABLE_WSC_SERVICE
++static const struct 
++{
++	const char * methodName; 
++	int (*methodImpl)(IN struct upnphttp *, IN uint32, OUT IXML_Document *, OUT char **);
++}
++soapActions[] =
++{
++	{ "GetDeviceInfo", WscDevGetDeviceInfo},
++	{ "PutMessage", WscDevPutMessage},
++	{ "GetAPSettings", WscDevGetAPSettings},
++	{ "SetAPSettings", WscDevSetAPSettings},
++	{ "DelAPSettings", WscDevDelAPSettings},
++	{ "GetSTASettings", WscDevGetSTASettings},
++	{ "SetSTASettings", WscDevSetSTASettings},
++	{ "PutWLANResponse", WscDevPutWLANResponse},
++	{ "RebootAP", WscDevRebootAP},
++	{ "ResetAP", WscDevResetAP},
++	{ "RebootSTA", WscDevRebootSTA},
++	{ "ResetSTA", WscDevResetSTA},
++	{ "SetSelectedRegistrar", WscDevSetSelectedRegistrar},
++	{ 0, 0 }
++};
++#endif /* ENABLE_WSC_SERVICE */
++
+ #ifdef ENABLE_DP_SERVICE
+ static void
+ SendSetupMessage(struct upnphttp * h, const char * action, const char * ns)
+@@ -2310,9 +2338,33 @@ ExecuteSoapAction(struct upnphttp * h, c
+ 	int i, len, methodlen;
+ 	char namespace[256];
+ 
++#ifdef ENABLE_WSC_SERVICE
++	char *error_string = NULL;
++	int retCode = -1;
++	int pos=0;
++#endif /* ENABLE_WSC_SERVICE */
++
+ 	/* SoapAction example :
+ 	 * urn:schemas-upnp-org:service:WANIPConnection:1#GetStatusInfo */
+ 	p = strchr(action, '#');
++
++#ifdef RT_DEBUG
++	if (p == NULL)
++	{
++		printf("\n------h->req_soapActionLen = %d------\n", h->req_soapActionLen);
++	}
++#endif
++
++#ifdef ENABLE_WSC_SERVICE
++	/* fix a bug about extracting out the action handler name */
++	/* skip string terminator while extracting */
++	while (p == NULL)
++	{
++		++pos;
++		p = strchr(&action[pos], '#');
++	}
++#endif /* ENABLE_WSC_SERVICE */
++
+ 	if(p && (p - action) < n) {
+ 		for(i = 0; i < ((int)sizeof(namespace) - 1) && (action + i) < p; i++)
+ 			namespace[i] = action[i];
+@@ -2336,6 +2388,33 @@ ExecuteSoapAction(struct upnphttp * h, c
+ 				return;
+ 			}
+ 		}
++		
++#ifdef ENABLE_WSC_SERVICE
++		if (GETFLAG(ENABLEWPSMASK))
++		{
++			i=0;
++			while(soapActions[i].methodName)
++			{
++				len = strlen(soapActions[i].methodName);
++				if(strncmp(p, soapActions[i].methodName, len) == 0)
++				{
++
++					IXML_Document resp_node = NULL;
++
++					retCode = soapActions[i].methodImpl(h,
++						h->clientaddr.s_addr, &resp_node, &error_string);
++
++					if ((error_string) == NULL)
++					{
++						ASSERT(retCode == 0);
++					}
++
++					return;
++				}
++				i++;
++			}
++		}
++#endif /* ENABLE_WSC_SERVICE */
+ 		syslog(LOG_NOTICE, "SoapMethod: Unknown: %.*s %s", methodlen, p, namespace);
+ 	} else {
+ 		syslog(LOG_NOTICE, "cannot parse SoapAction");
+Index: lede/build_dir/target-aarch64_cortex-a53_musl/miniupnpd-2.2.1/upnpsoap.h
+===================================================================
+--- a/upnpsoap.h
++++ b/upnpsoap.h
+@@ -19,5 +19,89 @@ ExecuteSoapAction(struct upnphttp *, con
+ void
+ SoapError(struct upnphttp * h, int errCode, const char * errDesc);
+ 
++#ifdef ENABLE_WSC_SERVICE
++#include "wsc/wsc_common.h"
++#include "wsc/wsc_msg.h"
++
++extern int
++WscDevGetAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++    OUT IXML_Document * out,
++    OUT char **errorString );
++extern int
++WscDevGetSTASettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevSetAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevDelAPSettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevSetSTASettings(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevRebootAP(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int 
++WscDevResetAP(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevRebootSTA(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevResetSTA(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int 
++WscDevSetSelectedRegistrar(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevPutWLANResponse(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int 
++WscDevPutMessage(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++extern int
++WscDevGetDeviceInfo(
++	IN struct upnphttp * h,
++	IN uint32 ipAddr,
++	OUT IXML_Document * out,
++	OUT char **errorString);
++#endif /* ENABLE_WSC_SERVICE */
++
+ #endif
+ 

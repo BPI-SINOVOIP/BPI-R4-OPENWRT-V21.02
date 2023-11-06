@@ -1,0 +1,144 @@
+From b69722554a27e8c13612f62c9b9cf8651a30bd8f Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Wed, 5 Jul 2023 10:00:17 +0800
+Subject: [PATCH 56/98] wifi: mt76: mt7996: add eagle iFEM HWITS ZWDFS SW
+ workaround
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/main.c   | 58 ++++++++++++++++++++++++++++++++++++++++++++++---
+ mt7996/mcu.c    |  6 +++--
+ mt7996/mt7996.h |  1 +
+ 3 files changed, 60 insertions(+), 5 deletions(-)
+
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 35f8fee..d27275a 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -1413,6 +1413,54 @@ mt7996_twt_teardown_request(struct ieee80211_hw *hw,
+ 	mutex_unlock(&dev->mt76.mutex);
+ }
+ 
++static void
++mt7996_background_radar_handle_7975_ifem(struct ieee80211_hw *hw,
++					 struct cfg80211_chan_def *user_chandef,
++					 struct cfg80211_chan_def *fw_chandef)
++{
++	struct mt7996_phy *phy = mt7996_hw_phy(hw);
++	struct mt7996_dev *dev = phy->dev;
++	struct cfg80211_chan_def *c = user_chandef;
++	bool is_ifem_adie, expand = false;
++	u32 origin_control;
++
++	if (is_mt7996(&dev->mt76))
++		is_ifem_adie = !!(mt76_get_field(dev, MT_PAD_GPIO, MT_PAD_GPIO_ADIE_COMB) % 2);
++	else
++		is_ifem_adie = (mt76_get_field(dev, MT_PAD_GPIO, MT_PAD_GPIO_ADIE_COMB_7992) == 1);
++
++	if (!user_chandef || !is_ifem_adie)
++		goto out;
++
++	if (user_chandef->width == NL80211_CHAN_WIDTH_160) {
++		origin_control = user_chandef->chan->center_freq;
++		if (dev->bg_nxt_freq)
++			goto out;
++
++		if (user_chandef->chan->flags & IEEE80211_CHAN_RADAR)
++			dev->bg_nxt_freq = origin_control;
++		else
++			c = fw_chandef;
++
++		c->chan = ieee80211_get_channel(hw->wiphy, origin_control + 80);
++	} else {
++		if (!dev->bg_nxt_freq)
++			goto out;
++
++		c->chan = ieee80211_get_channel(hw->wiphy, dev->bg_nxt_freq);
++		dev->bg_nxt_freq = 0;
++		expand = true;
++	}
++	c->width = NL80211_CHAN_WIDTH_80;
++	c->center_freq1 = c->chan->center_freq + 30;
++
++	if (c == user_chandef)
++		cfg80211_background_radar_update_channel(hw->wiphy, c, expand);
++	return;
++out:
++	dev->bg_nxt_freq = 0;
++}
++
+ static int
+ mt7996_set_radar_background(struct ieee80211_hw *hw,
+ 			    struct cfg80211_chan_def *chandef)
+@@ -1421,6 +1469,7 @@ mt7996_set_radar_background(struct ieee80211_hw *hw,
+ 	struct mt7996_dev *dev = phy->dev;
+ 	int ret = -EINVAL;
+ 	bool running;
++	struct cfg80211_chan_def ifem_chandef = {};
+ 
+ 	mutex_lock(&dev->mt76.mutex);
+ 
+@@ -1433,13 +1482,14 @@ mt7996_set_radar_background(struct ieee80211_hw *hw,
+ 		goto out;
+ 	}
+ 
++	mt7996_background_radar_handle_7975_ifem(hw, chandef, &ifem_chandef);
++
+ 	/* rdd2 already configured on a radar channel */
+ 	running = dev->rdd2_phy &&
+ 		  cfg80211_chandef_valid(&dev->rdd2_chandef) &&
+ 		  !!(dev->rdd2_chandef.chan->flags & IEEE80211_CHAN_RADAR);
+ 
+-	if (!chandef || running ||
+-	    !(chandef->chan->flags & IEEE80211_CHAN_RADAR)) {
++	if (!chandef || running) {
+ 		ret = mt7996_mcu_rdd_background_enable(phy, NULL);
+ 		if (ret)
+ 			goto out;
+@@ -1448,7 +1498,9 @@ mt7996_set_radar_background(struct ieee80211_hw *hw,
+ 			goto update_phy;
+ 	}
+ 
+-	ret = mt7996_mcu_rdd_background_enable(phy, chandef);
++	ret = mt7996_mcu_rdd_background_enable(phy,
++					       ifem_chandef.chan ?
++					       &ifem_chandef : chandef);
+ 	if (ret)
+ 		goto out;
+ 
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 2dbec1e..a4f3ed9 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -350,12 +350,14 @@ mt7996_mcu_rx_radar_detected(struct mt7996_dev *dev, struct sk_buff *skb)
+ 	if (!mphy)
+ 		return;
+ 
+-	if (r->band_idx == MT_RX_SEL2)
++	if (r->band_idx == MT_RX_SEL2) {
++		dev->bg_nxt_freq = 0;
+ 		cfg80211_background_radar_event(mphy->hw->wiphy,
+ 						&dev->rdd2_chandef,
+ 						GFP_ATOMIC);
+-	else
++	} else {
+ 		ieee80211_radar_detected(mphy->hw);
++	}
+ 	dev->hw_pattern++;
+ }
+ 
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 1fac783..413fbf7 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -392,6 +392,7 @@ struct mt7996_dev {
+ 	bool testmode_enable;
+ 	bool bin_file_mode;
+ 	u8 eeprom_mode;
++	u32 bg_nxt_freq;
+ 
+ 	bool ibf;
+ 	u8 fw_debug_wm;
+-- 
+2.18.0
+

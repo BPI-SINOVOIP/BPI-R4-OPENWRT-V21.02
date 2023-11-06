@@ -1,0 +1,25 @@
+diff --git a/hostapd/hostapd_cli.c b/hostapd/hostapd_cli.c
+index 5986a21..1cf80f1 100644
+--- a/hostapd/hostapd_cli.c
++++ b/hostapd/hostapd_cli.c
+@@ -1539,6 +1539,11 @@ static int hostapd_cli_cmd_poll_sta(struct wpa_ctrl *ctrl, int argc,
+ 	return hostapd_cli_cmd(ctrl, "POLL_STA", 1, argc, argv);
+ }
+ 
++static int hostapd_cli_cmd_get_pmk(struct wpa_ctrl *ctrl, int argc,
++                                    char *argv[])
++{
++        return hostapd_cli_cmd(ctrl, "GET_PMK", 1, argc, argv);
++}
+ 
+ static int hostapd_cli_cmd_req_beacon(struct wpa_ctrl *ctrl, int argc,
+ 				      char *argv[])
+@@ -1751,6 +1756,8 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
+ 	  "=Add/Delete/Show/Clear deny MAC ACL" },
+ 	{ "poll_sta", hostapd_cli_cmd_poll_sta, hostapd_complete_stations,
+ 	  "<addr> = poll a STA to check connectivity with a QoS null frame" },
++	{ "get_pmk", hostapd_cli_cmd_get_pmk, hostapd_complete_stations,
++          "<addr> = get PMK of AP" },
+ 	{ "req_beacon", hostapd_cli_cmd_req_beacon, NULL,
+ 	  "<addr> [req_mode=] <measurement request hexdump>  = send a Beacon report request to a station" },
+ 	{ "reload_wpa_psk", hostapd_cli_cmd_reload_wpa_psk, NULL,

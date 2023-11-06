@@ -1,0 +1,51 @@
+From cb01c8f9cef451d5e478d8498902d52a92ca4b55 Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Tue, 5 Sep 2023 17:31:49 +0800
+Subject: [PATCH 23/98] wifi: mt76: mt7996: disable rx header translation for
+ BMC entry
+
+Signed-off-by: Shayne Chen <shayne.chen@mediatek.com>
+Change-Id: Ia98bb775af528fe1002590fa25bb8855945cfc4b
+---
+ mt7996/mcu.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index c190067..39f76a0 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -1719,10 +1719,10 @@ mt7996_mcu_sta_hdr_trans_tlv(struct mt7996_dev *dev, struct sk_buff *skb,
+ 	else
+ 		hdr_trans->from_ds = true;
+ 
+-	wcid = (struct mt76_wcid *)sta->drv_priv;
+-	if (!wcid)
++	if (!sta)
+ 		return;
+ 
++	wcid = (struct mt76_wcid *)sta->drv_priv;
+ 	hdr_trans->dis_rx_hdr_tran = !test_bit(MT_WCID_FLAG_HDR_TRANS, &wcid->flags);
+ 	if (test_bit(MT_WCID_FLAG_4ADDR, &wcid->flags)) {
+ 		hdr_trans->to_ds = true;
+@@ -2095,6 +2095,9 @@ int mt7996_mcu_add_sta(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 	if (!enable)
+ 		goto out;
+ 
++	/* starec hdr trans */
++	mt7996_mcu_sta_hdr_trans_tlv(dev, skb, vif, sta);
++
+ 	/* tag order is in accordance with firmware dependency. */
+ 	if (sta) {
+ 		/* starec phy */
+@@ -2121,8 +2124,6 @@ int mt7996_mcu_add_sta(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 		mt7996_mcu_sta_muru_tlv(dev, skb, vif, sta);
+ 		/* starec bfee */
+ 		mt7996_mcu_sta_bfee_tlv(dev, skb, vif, sta);
+-		/* starec hdr trans */
+-		mt7996_mcu_sta_hdr_trans_tlv(dev, skb, vif, sta);
+ 	}
+ 
+ 	ret = mt7996_mcu_add_group(dev, vif, sta);
+-- 
+2.18.0
+

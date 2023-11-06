@@ -1,0 +1,120 @@
+diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
+index 9dd65d9..69b7779 100644
+--- a/src/ap/ctrl_iface_ap.c
++++ b/src/ap/ctrl_iface_ap.c
+@@ -25,6 +25,7 @@
+ #include "mbo_ap.h"
+ #include "taxonomy.h"
+ #include "wnm_ap.h"
++#include "neighbor_db.h"
+ 
+ #ifdef CONFIG_CTRL_IFACE_MIB
+ 
+@@ -1238,16 +1239,8 @@ int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
+ 	if (os_strstr(cmd, " disassoc_imminent=1"))
+ 		req_mode |= WNM_BSS_TM_REQ_DISASSOC_IMMINENT;
+ 
++	hostapd_neighbor_set_own_report_pref(hapd, nei_rep, nei_len, 0);
+ #ifdef CONFIG_MBO
+-	if (nei_len && (req_mode & WNM_BSS_TM_REQ_DISASSOC_IMMINENT)) {
+-		if (!os_memcmp(hapd->own_addr, nei_rep + 2, ETH_ALEN))
+-			nei_rep[17] = 0;
+-		else if (nei_len > 18 && !os_memcmp(hapd->own_addr, nei_rep + 20, ETH_ALEN))
+-			nei_rep[35] = 0;
+-		if (nei_len > 36)
+-			nei_rep[35] = 0;
+-	} else if (nei_len > 36)
+-		nei_rep[53] = 0;
+ 
+ 	pos = os_strstr(cmd, "mbo=");
+ 	if (pos) {
+diff --git a/src/ap/neighbor_db.c b/src/ap/neighbor_db.c
+index 52f25eb..1c6e4c7 100644
+--- a/src/ap/neighbor_db.c
++++ b/src/ap/neighbor_db.c
+@@ -325,3 +325,74 @@ void hostapd_neighbor_set_own_report(struct hostapd_data *hapd)
+ 	wpabuf_free(nr);
+ #endif /* NEED_AP_MLME */
+ }
++
++void hostapd_neighbor_set_own_report_pref(struct hostapd_data *hapd, char *nei_buf,
++		size_t buflen, const int pref)
++{
++	int len = 0, shift_len = 0, own_mac = 0, sub_nr_len = 0, i = 0;
++	u8 own_addr_link0[ETH_ALEN] = {0}, own_addr_link1[ETH_ALEN] = {0};
++	struct hostapd_iface *h = NULL;
++	struct hostapd_data *h_hapd = NULL;
++
++	for (i = 0; i < hapd->iface->interfaces->count; i++) {
++		h = hapd->iface->interfaces->iface[i];
++		if (h)
++			h_hapd = h->bss[0];
++
++		if (h_hapd) {
++			if (os_memcmp(own_addr_link0, "\0\0\0\0\0\0", ETH_ALEN) == 0 &&
++					os_memcmp(h_hapd->own_addr, hapd->own_addr, ETH_ALEN) != 0) {
++				os_memcpy(own_addr_link0, h_hapd->own_addr, ETH_ALEN);
++				own_mac = 1;
++			}
++
++			if (os_memcmp(own_addr_link1, "\0\0\0\0\0\0", ETH_ALEN) == 0 &&
++					!own_mac &&
++					os_memcmp(h_hapd->own_addr, hapd->own_addr, ETH_ALEN) != 0) {
++				os_memcpy(own_addr_link1, h_hapd->own_addr, ETH_ALEN);
++			} else
++				own_mac = 0;
++		}
++	}
++
++	own_mac = 0;
++	while (len < buflen) {
++		if (nei_buf[len] == WLAN_EID_NEIGHBOR_REPORT) {
++			if (os_memcmp(&nei_buf[len + 2], hapd->own_addr, ETH_ALEN) == 0 ||
++					os_memcmp(&nei_buf[len + 2], own_addr_link0, ETH_ALEN) == 0 ||
++					os_memcmp(&nei_buf[len + 2], own_addr_link1, ETH_ALEN) == 0)
++				own_mac = 1;
++			else
++				own_mac = 0;
++
++			shift_len = 2 + 6 + 4 + 1 + 1 + 1;
++			sub_nr_len = nei_buf[len + 1] - shift_len;
++			if (own_mac) {
++				len = len + shift_len;
++			} else {
++				len = len + shift_len + sub_nr_len + 2;
++				continue;
++			}
++
++			if (sub_nr_len <= 0)
++				continue;
++
++			while (sub_nr_len > 0) {
++				if (own_mac && nei_buf[len] == 3) {
++					nei_buf[len + 2] = pref;
++					own_mac = 0;
++					len = len + 3;
++					sub_nr_len = sub_nr_len - 3;
++				} else {
++					int sh_len = nei_buf[len + 1];
++					len = len + sh_len + 2;
++					sub_nr_len = sub_nr_len - sh_len;
++				}
++
++				if (sub_nr_len <= 0)
++					break;
++			}
++		} else
++			continue;
++	}
++}
+diff --git a/src/ap/neighbor_db.h b/src/ap/neighbor_db.h
+index 992671b..af73167 100644
+--- a/src/ap/neighbor_db.h
++++ b/src/ap/neighbor_db.h
+@@ -24,4 +24,6 @@ int hostapd_neighbor_remove(struct hostapd_data *hapd, const u8 *bssid,
+ 			    const struct wpa_ssid_value *ssid);
+ void hostapd_free_neighbor_db(struct hostapd_data *hapd);
+ 
++void hostapd_neighbor_set_own_report_pref(struct hostapd_data *hapd, char *nei_buf,
++		                size_t buflen, const int pref);
+ #endif /* NEIGHBOR_DB_H */

@@ -1,0 +1,141 @@
+#!/bin/sh /etc/rc.common
+
+START=10
+STOP=91
+
+USE_PROCD=1
+NAME=wpad
+
+start_service() {
+	config_load wpad
+	if [ -x "/usr/sbin/hostapd" ]; then
+		config_get log_enable hostapd log_enable '0'
+		config_get log_file_enable hostapd log_file_enable '0'
+		config_get log_file_path hostapd log_file_path "/var/log/hostapd.log"
+		config_get log_verbose hostapd log_verbose '1'
+		config_get log_timestamp hostapd log_timestamp '0'
+		config_get log_syslog_enable hostapd log_syslog_enable '0'
+		config_get log_key hostapd log_key '0'
+		config_get log_rotate_enable hostapd log_rotate_enable '1'
+		config_get log_rotate_cron hostapd log_rotate_cron "*/2 * * * *"
+		config_get log_rotate_size hostapd log_rotate_size "512k"
+		config_get extra_options hostapd extra_options
+		config_get respawn hostapd respawn '0'
+		config_get limits hostapd limits 'core="unlimited"'
+
+		mkdir -p /var/run/hostapd
+		chown network:network /var/run/hostapd
+		procd_open_instance hostapd
+		procd_set_param command /usr/sbin/hostapd -g /var/run/hostapd/global
+		[ "$log_enable" = "1" ] && {
+			local debug="-"
+			[ -n "$log_verbose" ] && {
+				while [ $log_verbose -gt 0 ]; do
+					debug=$debug"d"
+					let 'log_verbose = log_verbose - 1'
+				done
+			}
+			[ "$debug" != "-" ] && procd_append_param command $debug
+
+			[ "$log_file_enable" = "1" -a -n "$log_file_path" ] && {
+				rm ${log_file_path}*
+				procd_append_param command -f $log_file_path
+				[ -f /etc/crontabs/root ] && sed -i '/hostapd.logrotate.conf/d' /etc/crontabs/root
+				[ "$log_rotate_enable" = "1" -a -x "/usr/sbin/logrotate" ] && {
+					cp /etc/wpad/template/hostapd.logrotate.conf /var/run/hostapd.logrotate.conf
+					new_log_file=$(echo ${log_file_path} | sed 's/\//\\\//g')
+					sed -i "s/HOSTAPD_LOG_PATH/${new_log_file}/g" /var/run/hostapd.logrotate.conf
+					sed -i "s/HOSTAPD_LOG_SIZE/${log_rotate_size}/g" /var/run/hostapd.logrotate.conf
+					echo "$log_rotate_cron /usr/sbin/logrotate /var/run/hostapd.logrotate.conf" >> /etc/crontabs/root
+				}
+			}
+			[ "$log_timestamp" = "1" ] && procd_append_param command -t
+			[ "$log_syslog_enable" = "1" ] && procd_append_param command -s
+			[ "$log_key" = "1" ] && procd_append_param command -K
+		}
+
+		[ -n "$extra_options" ] && procd_append_param command $extra_options
+
+		[ "$respawn" = "1" ] && {
+			procd_set_param respawn 3600 1 0
+		}
+
+		[ -n "$limits" ] && {
+			procd_set_param limits $limits
+		}
+
+		[ -x /sbin/ujail -a -e /etc/capabilities/wpad.json ] && {
+			procd_add_jail hostapd
+			procd_set_param capabilities /etc/capabilities/wpad.json
+			procd_set_param user network
+			procd_set_param group network
+			procd_set_param no_new_privs 1
+		}
+		procd_close_instance
+	fi
+
+	if [ -x "/usr/sbin/wpa_supplicant" ]; then
+		config_get log_enable wpa_supplicant log_enable '0'
+		config_get log_file_enable wpa_supplicant log_file_enable '0'
+		config_get log_file_path wpa_supplicant log_file_path "/var/log/wpa_supplicant.log"
+		config_get log_verbose wpa_supplicant log_verbose '1'
+		config_get log_timestamp wpa_supplicant log_timestamp '0'
+		config_get log_syslog_enable wpa_supplicant log_syslog_enable '0'
+		config_get log_key wpa_supplicant log_key '0'
+		config_get log_rotate_enable wpa_supplicant log_rotate_enable "1"
+		config_get log_rotate_cron wpa_supplicant log_rotate_cron "*/2 * * * *"
+		config_get log_rotate_size wpa_supplicant log_rotate_size "512k"
+		config_get extra_options wpa_supplicant extra_options
+		config_get respawn wpa_supplicant respawn '0'
+		config_get limits wpa_supplicant limits 'core="unlimited"'
+
+		mkdir -p /var/run/wpa_supplicant
+		chown network:network /var/run/wpa_supplicant
+		procd_open_instance supplicant
+		procd_set_param command /usr/sbin/wpa_supplicant -n -g /var/run/wpa_supplicant/global
+		[ "$log_enable" = "1" ] && {
+			local debug="-"
+			[ -n "$log_verbose" ] && {
+				while [ $log_verbose -gt 0 ]; do
+					debug=$debug"d"
+					let 'log_verbose = log_verbose - 1'
+				done
+			}
+			[ "$debug" != "-" ] && procd_append_param command $debug
+
+			[ "$log_file_enable" = "1" -a -n "$log_file_path" ] && {
+				rm ${log_file_path}*
+				procd_append_param command -f $log_file_path
+				[ -f /etc/crontabs/root ] && sed -i '/wpa_supplicant.logrotate.conf/d' /etc/crontabs/root
+				[ "$log_rotate_enable" = "1" -a -x "/usr/sbin/logrotate" ] && {
+					cp /etc/wpad/template/wpa_supplicant.logrotate.conf /var/run/wpa_supplicant.logrotate.conf
+					new_log_file=$(echo ${log_file_path} | sed 's/\//\\\//g')
+					sed -i "s/WPA_SUPPLICANT_LOG_PATH/${new_log_file}/g" /var/run/wpa_supplicant.logrotate.conf
+					sed -i "s/WPA_SUPPLICANT_LOG_SIZE/${log_rotate_size}/g" /var/run/wpa_supplicant.logrotate.conf
+					echo "$log_rotate_cron /usr/sbin/logrotate /var/run/wpa_supplicant.logrotate.conf" >> /etc/crontabs/root
+				}
+			}
+			[ "$log_timestamp" = "1" ] && procd_append_param command -t
+			[ "$log_syslog_enable" = "1" ] && procd_append_param command -s
+			[ "$log_key" = "1" ] && procd_append_param command -K
+		}
+		[ -n "$extra_options" ] && procd_append_param command $extra_options
+
+		[ "$respawn" = "1" ] && {
+			procd_set_param respawn 3600 1 0
+		}
+
+		[ -n "$limits" ] && {
+			procd_set_param limits $limits
+		}
+
+		[ -x /sbin/ujail -a -e /etc/capabilities/wpad.json ] && {
+			procd_add_jail wpa_supplicant
+			procd_set_param capabilities /etc/capabilities/wpad.json
+			procd_set_param user network
+			procd_set_param group network
+			procd_set_param no_new_privs 1
+		}
+		procd_close_instance
+	fi
+}

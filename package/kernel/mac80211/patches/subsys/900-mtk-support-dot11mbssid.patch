@@ -1,0 +1,53 @@
+Index: backports-5.15.81-1/include/net/cfg80211.h
+===================================================================
+--- backports-5.15.81-1.orig/include/net/cfg80211.h
++++ backports-5.15.81-1/include/net/cfg80211.h
+@@ -1185,6 +1185,7 @@ struct cfg80211_unsol_bcast_probe_resp {
+  */
+ enum cfg80211_ap_settings_flags {
+ 	AP_SETTINGS_EXTERNAL_AUTH_SUPPORT = BIT(0),
++	AP_SETTINGS_DOT11VMBSSID_SUPPORT = BIT(16),
+ };
+ 
+ /**
+Index: backports-5.15.81-1/include/uapi/linux/nl80211.h
+===================================================================
+--- backports-5.15.81-1.orig/include/uapi/linux/nl80211.h
++++ backports-5.15.81-1/include/uapi/linux/nl80211.h
+@@ -3129,6 +3129,7 @@ enum nl80211_attrs {
+ 	NL80211_ATTR_WIPHY_ANTENNA_GAIN,
+ 
+ 	/* add attributes here, update the policy in nl80211.c */
++	NL80211_ATTR_DOT11VMBSSID = NL80211_ATTR_MBSSID_ELEMS + 20,
+ 
+ 	__NL80211_ATTR_AFTER_LAST,
+ 	NUM_NL80211_ATTR = __NL80211_ATTR_AFTER_LAST,
+Index: backports-5.15.81-1/net/wireless/nl80211.c
+===================================================================
+--- backports-5.15.81-1.orig/net/wireless/nl80211.c
++++ backports-5.15.81-1/net/wireless/nl80211.c
+@@ -803,6 +803,7 @@ static const struct nla_policy nl80211_p
+ 	[NL80211_ATTR_MBSSID_ELEMS] = { .type = NLA_NESTED },
+ 	[NL80211_ATTR_RADAR_BACKGROUND] = { .type = NLA_FLAG },
+ 	[NL80211_ATTR_WIPHY_ANTENNA_GAIN] = { .type = NLA_U32 },
++	[NL80211_ATTR_DOT11VMBSSID] = { .type = NLA_U8 },
+ };
+ 
+ /* policy for the key attributes */
+@@ -5731,6 +5732,16 @@ static int nl80211_start_ap(struct sk_bu
+ 			goto out;
+ 	}
+ 
++	if (info->attrs[NL80211_ATTR_DOT11VMBSSID]) {
++		if (nla_get_u8(info->attrs[NL80211_ATTR_DOT11VMBSSID]) != 0) {
++			params.flags |= AP_SETTINGS_DOT11VMBSSID_SUPPORT;
++		} else {
++			params.flags &= ~AP_SETTINGS_DOT11VMBSSID_SUPPORT;
++		}
++	} else {
++		params.flags &= ~AP_SETTINGS_DOT11VMBSSID_SUPPORT;
++	}
++
+ 	nl80211_calculate_ap_params(&params);
+ 
+ 	if (info->attrs[NL80211_ATTR_EXTERNAL_AUTH_SUPPORT])

@@ -1,0 +1,44 @@
+diff --git a/wpa_supplicant/Makefile b/wpa_supplicant/Makefile
+index 3978748..f77263c 100644
+--- a/wpa_supplicant/Makefile
++++ b/wpa_supplicant/Makefile
+@@ -63,6 +63,9 @@ endif
+ 
+ # MTK MAP Macro
+ CFLAGS += -DCONFIG_MTK_MAP
++ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++CFLAGS += -DCONFIG_MTK_MAP_SAE_EXT_KEY
++endif
+ 
+ mkconfig:
+ 	@if [ -f .config ]; then \
+diff --git a/wpa_supplicant/wps_supplicant.c b/wpa_supplicant/wps_supplicant.c
+index 6d576da..3097ed0 100644
+--- a/wpa_supplicant/wps_supplicant.c
++++ b/wpa_supplicant/wps_supplicant.c
+@@ -550,8 +550,15 @@ static int wpa_supplicant_wps_cred(void *ctx,
+ 		break;
+ 	case WPS_AUTH_WPA2PSK:
+ 		ssid->auth_alg = WPA_AUTH_ALG_OPEN;
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++		/* Support for SAE AKM 24 */
++		add_sae = wpa_s->conf->wps_cred_add_sae;
++		if (!add_sae)
++			ssid->key_mgmt = WPA_KEY_MGMT_PSK;
++#else
+ 		ssid->key_mgmt = WPA_KEY_MGMT_PSK;
+ 		add_sae = wpa_s->conf->wps_cred_add_sae;
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY */
+ #ifdef CONFIG_P2P
+ 		if (ssid->p2p_group && is_p2p_6ghz_capable(wpa_s->global->p2p))
+ 			add_sae = true;
+@@ -559,6 +566,9 @@ static int wpa_supplicant_wps_cred(void *ctx,
+ 		if (add_sae && cred->key_len != 2 * PMK_LEN) {
+ 			ssid->auth_alg = 0;
+ 			ssid->key_mgmt |= WPA_KEY_MGMT_SAE;
++#ifdef CONFIG_MTK_MAP_SAE_EXT_KEY
++			ssid->key_mgmt |= WPA_KEY_MGMT_SAE_EXT_KEY;
++#endif /* CONFIG_MTK_MAP_SAE_EXT_KEY */
+ 			ssid->ieee80211w = MGMT_FRAME_PROTECTION_OPTIONAL;
+ 		}
+ 		ssid->proto = WPA_PROTO_RSN;

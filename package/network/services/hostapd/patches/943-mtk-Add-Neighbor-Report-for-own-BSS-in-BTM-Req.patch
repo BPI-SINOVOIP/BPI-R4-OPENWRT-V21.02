@@ -1,0 +1,21 @@
+diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
+index 26d449d..9dd65d9 100644
+--- a/src/ap/ctrl_iface_ap.c
++++ b/src/ap/ctrl_iface_ap.c
+@@ -1239,6 +1239,16 @@ int hostapd_ctrl_iface_bss_tm_req(struct hostapd_data *hapd,
+ 		req_mode |= WNM_BSS_TM_REQ_DISASSOC_IMMINENT;
+ 
+ #ifdef CONFIG_MBO
++	if (nei_len && (req_mode & WNM_BSS_TM_REQ_DISASSOC_IMMINENT)) {
++		if (!os_memcmp(hapd->own_addr, nei_rep + 2, ETH_ALEN))
++			nei_rep[17] = 0;
++		else if (nei_len > 18 && !os_memcmp(hapd->own_addr, nei_rep + 20, ETH_ALEN))
++			nei_rep[35] = 0;
++		if (nei_len > 36)
++			nei_rep[35] = 0;
++	} else if (nei_len > 36)
++		nei_rep[53] = 0;
++
+ 	pos = os_strstr(cmd, "mbo=");
+ 	if (pos) {
+ 		unsigned int mbo_reason, cell_pref, reassoc_delay;

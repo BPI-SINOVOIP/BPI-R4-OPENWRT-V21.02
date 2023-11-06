@@ -1,0 +1,423 @@
+diff --git a/hostapd/Makefile b/hostapd/Makefile
+index 9d75c71..2d33ef5 100644
+--- a/hostapd/Makefile
++++ b/hostapd/Makefile
+@@ -38,6 +38,9 @@ endif
+ endif
+ endif
+ 
++# MTK MAP Macro
++#CFLAGS += -DCONFIG_MTK_MAP
++
+ ifdef CONFIG_TESTING_OPTIONS
+ CFLAGS += -DCONFIG_TESTING_OPTIONS
+ CONFIG_WPS_TESTING=y
+diff --git a/hostapd/ctrl_iface.c b/hostapd/ctrl_iface.c
+index a22c58f..dd1fbbf 100644
+--- a/hostapd/ctrl_iface.c
++++ b/hostapd/ctrl_iface.c
+@@ -3756,6 +3756,10 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
+ 		reply_len = hostapd_ctrl_iface_driver_cmd(hapd, buf + 7, reply,
+ 							  reply_size);
+ #endif /* ANDROID */
++#ifdef CONFIG_MTK_MAP
++	} else if (os_strncmp(buf, "WPS_MAP_SEC ", 12) == 0) {
++		hapd->iface->interfaces->map_sec_enable = atoi(buf + 12);
++#endif /* CONFIG_MTK_MAP */
+ 	} else {
+ 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
+ 		reply_len = 16;
+diff --git a/src/ap/hostapd.h b/src/ap/hostapd.h
+index 4973ac1..a0d50cd 100644
+--- a/src/ap/hostapd.h
++++ b/src/ap/hostapd.h
+@@ -83,6 +83,9 @@ struct hapd_interfaces {
+        unsigned char ctrl_iface_cookie[CTRL_IFACE_COOKIE_LEN];
+ #endif /* CONFIG_CTRL_IFACE_UDP */
+ 	struct ubus_object ubus;
++#ifdef CONFIG_MTK_MAP
++	u8 map_sec_enable;
++#endif /* CONFIG_MTK_MAP */
+ };
+ 
+ enum hostapd_chan_status {
+@@ -471,6 +474,9 @@ struct hostapd_data {
+ #endif /* CONFIG_CTRL_IFACE_UDP */
+ 
+ 		struct per_sta_profile profiles[ML_MAX_LINK_NUM];
++#ifdef CONFIG_MTK_MAP
++	u8 wps_dpp_uri_recv;
++#endif /* CONFIG_MTK_MAP */
+ };
+ 
+ 
+diff --git a/src/common/wpa_ctrl.h b/src/common/wpa_ctrl.h
+index 184a7b3..fed779c 100644
+--- a/src/common/wpa_ctrl.h
++++ b/src/common/wpa_ctrl.h
+@@ -161,6 +161,11 @@ extern "C" {
+ 
+ #define WPS_EVENT_OPEN_NETWORK "WPS-OPEN-NETWORK "
+
++#ifdef CONFIG_MTK_MAP
++#define WPS_EVENT_DPP_URI_RECEIVED "WPS-DPP-URI-RECEIVED "
++#define WPA_EVENT_SAE_FAIL_RECONF "WPA-SAE-FAIL-RECONF "
++#endif /* CONFIG_MTK_MAP */
++
+ /** Result of SCS setup */
+ #define WPA_EVENT_SCS_RESULT "CTRL-EVENT-SCS-RESULT "
+ /* Event indicating DSCP policy */
+diff --git a/src/wps/wps_attr_build.c b/src/wps/wps_attr_build.c
+index f372256..2a34a10 100644
+--- a/src/wps/wps_attr_build.c
++++ b/src/wps/wps_attr_build.c
+@@ -16,6 +16,9 @@
+ #include "crypto/random.h"
+ #include "common/ieee802_11_defs.h"
+ #include "wps_i.h"
++#ifdef CONFIG_MTK_MAP
++#include "wpa_supplicant_i.h"
++#endif /* CONFIG_MTK_MAP */
+ 
+ 
+ int wps_build_public_key(struct wps_data *wps, struct wpabuf *msg)
+@@ -302,6 +305,19 @@ int wps_build_registrar_nonce(struct wps_data *wps, struct wpabuf *msg)
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_MTK_MAP
++int wps_build_dpp_uri(struct wps_data *wps, struct wpabuf *msg)
++{
++	struct wpa_supplicant *wpa = (struct wpa_supplicant *)wps->wps->cb_ctx;
++	struct wpabuf *dpp_ptr = wpa->dpp_uri;
++
++	wpa_printf(MSG_DEBUG, "WPS:  * DPP URI");
++	wpabuf_put_be16(msg, ATTR_DPP_URI_INFO);
++	wpabuf_put_be16(msg, wpabuf_len(dpp_ptr));
++	wpabuf_put_data(msg, wpabuf_head(dpp_ptr), wpabuf_len(dpp_ptr));
++	return 0;
++}
++#endif /* CONFIG_MTK_MAP */
+ 
+ int wps_build_auth_type_flags(struct wps_data *wps, struct wpabuf *msg)
+ {
+diff --git a/src/wps/wps_attr_parse.c b/src/wps/wps_attr_parse.c
+index fd51635..7ee9000 100644
+--- a/src/wps/wps_attr_parse.c
++++ b/src/wps/wps_attr_parse.c
+@@ -583,7 +583,13 @@ static int wps_set_attr(struct wps_parse_attr *attr, u16 type,
+		}
+		attr->ap_channel = pos;
+ 		break;
+
++#ifdef CONFIG_MTK_MAP
++	case ATTR_DPP_URI_INFO:
++		attr->dpp_uri = pos;
++		attr->dpp_uri_len = len;
++		break;
++#endif /* CONFIG_MTK_MAP */
+ 	default:
+ 		wpa_printf(MSG_DEBUG, "WPS: Unsupported attribute type 0x%x "
+ 			   "len=%u", type, len);
+diff --git a/src/wps/wps_attr_parse.h b/src/wps/wps_attr_parse.h
+index 4de27b2..0023881 100644
+--- a/src/wps/wps_attr_parse.h
++++ b/src/wps/wps_attr_parse.h
+@@ -65,6 +65,9 @@ struct wps_parse_attr {
+ 	const u8 *dev_name;
+ 	const u8 *public_key;
+ 	const u8 *encr_settings;
++#ifdef CONFIG_MTK_MAP
++	const u8 *dpp_uri;
++#endif /* CONFIG_MTK_MAP */
+ 	const u8 *ssid; /* <= 32 octets */
+ 	const u8 *network_key; /* <= 64 octets */
+ 	const u8 *authorized_macs; /* <= 30 octets */
+@@ -77,6 +80,9 @@ struct wps_parse_attr {
+ 	u16 dev_name_len;
+ 	u16 public_key_len;
+ 	u16 encr_settings_len;
++#ifdef CONFIG_MTK_MAP
++	u16 dpp_uri_len;
++#endif /* CONFIG_MTK_MAP */
+ 	u16 ssid_len;
+ 	u16 network_key_len;
+ 	u16 authorized_macs_len;
+diff --git a/src/wps/wps_defs.h b/src/wps/wps_defs.h
+index ddaeda5..eb71f06 100644
+--- a/src/wps/wps_defs.h
++++ b/src/wps/wps_defs.h
+@@ -143,6 +143,10 @@ enum wps_attribute {
+ 	ATTR_EXTENSIBILITY_TEST = 0x10fa /* _NOT_ defined in the spec */
+ };
+ 
++#ifdef CONFIG_MTK_MAP
++#define ATTR_DPP_URI_INFO        0x1BBB
++#endif /* CONFIG_MTK_MAP */
++
+ #define WPS_VENDOR_ID_WFA 14122
+ 
+ /* WFA Vendor Extension subelements */
+diff --git a/src/wps/wps_enrollee.c b/src/wps/wps_enrollee.c
+index 819cd43..2558fa4 100644
+--- a/src/wps/wps_enrollee.c
++++ b/src/wps/wps_enrollee.c
+@@ -14,6 +14,10 @@
+ #include "crypto/random.h"
+ #include "wps_i.h"
+ #include "wps_dev_attr.h"
++#ifdef CONFIG_MTK_MAP
++#include "wpa_supplicant_i.h"
++#include "common/wpa_ctrl.h"
++#endif /* CONFIG_MTK_MAP */
+ 
+ 
+ static int wps_build_wps_state(struct wps_data *wps, struct wpabuf *msg)
+@@ -395,6 +399,9 @@ static struct wpabuf * wps_build_m7(struct wps_data *wps)
+ 	    wps_build_registrar_nonce(wps, msg) ||
+ 	    wps_build_e_snonce2(wps, plain) ||
+ 	    (wps->wps->ap && wps_build_ap_settings(wps, plain)) ||
++#if defined(CONFIG_MTK_MAP) && !defined(HOSTAPD)
++	    (((struct wpa_supplicant *)wps->wps->cb_ctx)->dpp_uri && wps_build_dpp_uri(wps, plain)) ||
++#endif /* CONFIG_MTK_MAP */
+ 	    wps_build_key_wrap_auth(wps, plain) ||
+ 	    wps_build_encr_settings(wps, msg, plain) ||
+ 	    wps_build_wfa_ext(msg, 0, NULL, 0, 0) ||
+@@ -775,6 +782,9 @@ static int wps_process_creds(struct wps_data *wps, const u8 *cred[],
+ 	if (num_cred == 0) {
+ 		wpa_printf(MSG_DEBUG, "WPS: No Credential attributes "
+ 			   "received");
++#if defined(CONFIG_MTK_MAP) && !defined(HOSTAPD)
++		wpa_msg(wps->wps->cb_ctx, MSG_INFO, WPS_EVENT_CRED_RECEIVED);
++#endif /* CONFIG_MTK_MAP */
+ 		return -1;
+ 	}
+ 
+diff --git a/src/wps/wps_i.h b/src/wps/wps_i.h
+index 2cf22d4..1b88692 100644
+--- a/src/wps/wps_i.h
++++ b/src/wps/wps_i.h
+@@ -181,6 +181,9 @@ struct wpabuf * wps_ie_encapsulate(struct wpabuf *data);
+ int wps_build_mac_addr(struct wpabuf *msg, const u8 *addr);
+ int wps_build_rf_bands_attr(struct wpabuf *msg, u8 rf_bands);
+ int wps_build_ap_channel(struct wpabuf *msg, u16 ap_channel);
++#ifdef CONFIG_MTK_MAP
++int wps_build_dpp_uri(struct wps_data *wps, struct wpabuf *msg);
++#endif /* CONFIG_MTK_MAP */
+ 
+ /* wps_attr_process.c */
+ int wps_process_authenticator(struct wps_data *wps, const u8 *authenticator,
+diff --git a/src/wps/wps_registrar.c b/src/wps/wps_registrar.c
+index 9587293..fd1ae38 100644
+--- a/src/wps/wps_registrar.c
++++ b/src/wps/wps_registrar.c
+@@ -22,6 +22,10 @@
+ #include "wps_dev_attr.h"
+ #include "wps_upnp.h"
+ #include "wps_upnp_i.h"
++#ifdef CONFIG_MTK_MAP
++#include "ap/hostapd.h"
++#include "common/wpa_ctrl.h"
++#endif /* CONFIG_MTK_MAP */
+ 
+ #ifndef CONFIG_WPS_STRICT
+ #define WPS_WORKAROUNDS
+@@ -1626,6 +1630,19 @@ int wps_build_cred(struct wps_data *wps, struct wpabuf *msg)
+ 	if (wps->wps->registrar->skip_cred_build)
+ 		goto skip_cred_build;
+ 
++#ifdef CONFIG_MTK_MAP
++	/*
++	 * IF DPP URI is received in M7 and map
++	 * security is enabled then do no send
++	 * credentials in message M8
++	 */
++	if (((struct hostapd_data *)wps->wps->cb_ctx)->wps_dpp_uri_recv
++		&& ((struct hostapd_data *)wps->wps->cb_ctx)->iface->interfaces->map_sec_enable) {
++		((struct hostapd_data *)wps->wps->cb_ctx)->wps_dpp_uri_recv = 0;
++		goto skip_cred_build;
++	}
++#endif /* CONFIG_MTK_MAP */
++
+ 	wpa_printf(MSG_DEBUG, "WPS:  * Credential");
+ 	if (wps->use_cred) {
+ 		os_memcpy(&wps->cred, wps->use_cred, sizeof(wps->cred));
+@@ -3020,6 +3037,31 @@ static enum wps_process_res wps_process_m7(struct wps_data *wps,
+ 		return WPS_CONTINUE;
+ 	}
+ 
++#ifdef CONFIG_MTK_MAP
++	if (eattr.dpp_uri_len != 0) {
++		//Milan
++		/*
++		 * Pass URI to wapp conroller
++		 * or proxy agent
++		 */
++		size_t blen = eattr.dpp_uri_len * 2 + 1;
++		char *buf = os_malloc(blen);
++		if (buf) {
++			wpa_snprintf_hex(buf, blen,
++					eattr.dpp_uri, eattr.dpp_uri_len);
++			wpa_msg(((struct hostapd_data *)wps->wps->cb_ctx)->msg_ctx, MSG_INFO,
++					WPS_EVENT_DPP_URI_RECEIVED MACSTR " %s",
++					MAC2STR(wps->mac_addr_e),buf);
++			os_free(buf);
++		}
++		/*
++		 * set the DPP URI recevied flag
++		 * To conrol the configuration in M8
++		 */
++		((struct hostapd_data *)wps->wps->cb_ctx)->wps_dpp_uri_recv = 1;
++	}
++#endif /* CONFIG_MTK_MAP */
++
+ 	wpabuf_clear_free(decrypted);
+ 
+ 	wps->state = SEND_M8;
+diff --git a/wpa_supplicant/Makefile b/wpa_supplicant/Makefile
+index ba9b7f5..be8026e 100644
+--- a/wpa_supplicant/Makefile
++++ b/wpa_supplicant/Makefile
+@@ -61,6 +61,9 @@ CONFIG_WPS_TESTING=y
+ CONFIG_TDLS_TESTING=y
+ endif
+ 
++# MTK MAP Macro
++#CFLAGS += -DCONFIG_MTK_MAP
++
+ mkconfig:
+ 	@if [ -f .config ]; then \
+ 		echo '.config exists - did not replace it'; \
+diff --git a/wpa_supplicant/ctrl_iface.c b/wpa_supplicant/ctrl_iface.c
+index bb6b1f9..ac45763 100644
+--- a/wpa_supplicant/ctrl_iface.c
++++ b/wpa_supplicant/ctrl_iface.c
+@@ -11470,6 +11470,57 @@ static int wpas_ctrl_iface_send_dscp_query(struct wpa_supplicant *wpa_s,
+ }
+ 
+ 
++#ifdef CONFIG_MTK_MAP
++static int wpas_ctrl_iface_set_wps_dpp_uri(struct wpa_supplicant *wpa_s,
++					   const char *cmd)
++{
++	const char *pos = cmd;
++	unsigned char uri_len = 0;
++
++	/*
++	 * format:
++	 * DPP URI set
++	 * <uri_len=len> <DPP_URI>
++	 *
++	 */
++	if (os_strncmp(pos, "uri_len=", 8) == 0) {
++		pos += 8;
++		uri_len = atoi(pos);
++
++		if (uri_len == 0) {
++			/*
++			 * If URI len is zero then clear
++			 * existing pointer
++			 */
++			if (wpa_s->dpp_uri)
++				wpabuf_free(wpa_s->dpp_uri);
++		} else {
++			/*
++			 * Look for uri string in the cmd
++			 * and asign to cooresponding pointer
++			 */
++			pos += 1;
++			pos = os_strchr(pos, ' ');
++			if (!pos)
++				return -1;
++			pos++;
++			/*
++			 * If URI is already present in
++			 * wpa_s then clear it first
++			 */
++			if (wpa_s->dpp_uri) {
++				wpabuf_free(wpa_s->dpp_uri);
++				wpa_s->dpp_uri = NULL;
++			}
++
++			wpa_s->dpp_uri = wpabuf_parse_bin(pos);
++			if (!wpa_s->dpp_uri)
++				return -1;
++			}
++	}
++}
++#endif /* CONFIG_MTK_MAP */
++
+ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
+ 					 char *buf, size_t *resp_len)
+ {
+@@ -12482,6 +12533,11 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
+ 	} else if (os_strncmp(buf, "DSCP_QUERY ", 11) == 0) {
+ 		if (wpas_ctrl_iface_send_dscp_query(wpa_s, buf + 11))
+ 			reply_len = -1;
++#ifdef CONFIG_MTK_MAP
++	} else if (os_strncmp(buf, "WPS_DPP_URI ", 12) == 0) {
++		if (wpas_ctrl_iface_set_wps_dpp_uri(wpa_s, buf + 12))
++			reply_len = -1;
++#endif /* CONFIG_MTK_MAP */
+ 	} else {
+ 		os_memcpy(reply, "UNKNOWN COMMAND\n", 16);
+ 		reply_len = 16;
+diff --git a/wpa_supplicant/sme.c b/wpa_supplicant/sme.c
+index 0b5afb9..b855d6b 100644
+--- a/wpa_supplicant/sme.c
++++ b/wpa_supplicant/sme.c
+@@ -1634,6 +1634,9 @@ void sme_event_auth(struct wpa_supplicant *wpa_s, union wpa_event_data *data)
+ 		if (res < 0) {
+ 			wpas_connection_failed(wpa_s, wpa_s->pending_bssid);
+ 			wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
++#ifdef CONFIG_MTK_MAP
++			wpa_msg(wpa_s, MSG_INFO, WPA_EVENT_SAE_FAIL_RECONF);
++#endif /* CONFIG_MTK_MAP */
+ 		}
+ 		if (res != 1)
+ 			return;
+diff --git a/wpa_supplicant/wpa_supplicant.c b/wpa_supplicant/wpa_supplicant.c
+index c220112..a12203f 100644
+--- a/wpa_supplicant/wpa_supplicant.c
++++ b/wpa_supplicant/wpa_supplicant.c
+@@ -794,6 +794,14 @@ static void wpa_supplicant_cleanup(struct wpa_supplicant *wpa_s)
+ #endif /* CONFIG_PASN */
+ 	wpas_scs_deinit(wpa_s);
+ 	wpas_dscp_deinit(wpa_s);
++
++#ifdef CONFIG_MTK_MAP
++	/*
++	 * clear DPP URI pointer on supplicant cleanup
++	 */
++	if (wpa_s->dpp_uri)
++		wpabuf_free(wpa_s->dpp_uri);
++#endif /* CONFIG_MTK_MAP */
+ }
+ 
+ 
+@@ -2395,8 +2403,10 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
+ 	wpa_supplicant_rsn_supp_set_config(wpa_s, ssid);
+ 
+ #ifdef CONFIG_DPP
++#ifndef CONFIG_MTK_MAP
+ 	if (wpas_dpp_check_connect(wpa_s, ssid, bss) != 0)
+ 		return;
++#endif /* CONFIG_MTK_MAP */
+ #endif /* CONFIG_DPP */
+ 
+ #ifdef CONFIG_TDLS
+diff --git a/wpa_supplicant/wpa_supplicant_i.h b/wpa_supplicant/wpa_supplicant_i.h
+index 6b1e14d..45330c8 100644
+--- a/wpa_supplicant/wpa_supplicant_i.h
++++ b/wpa_supplicant/wpa_supplicant_i.h
+@@ -1522,6 +1522,10 @@ struct wpa_supplicant {
+ #endif /* CONFIG_TESTING_OPTIONS */
+ #endif /* CONFIG_DPP */
+ 
++#ifdef CONFIG_MTK_MAP
++	struct wpabuf *dpp_uri;
++#endif
++
+ #ifdef CONFIG_FILS
+ 	unsigned int disable_fils:1;
+ #endif /* CONFIG_FILS */

@@ -1,0 +1,122 @@
+From 467bdd35a3ec4603761f1a7e2281a78a3776a0bb Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Mon, 11 Sep 2023 17:57:32 +0800
+Subject: [PATCH 2011/2011] mt76: wifi: mt7915: wed: setting wed hw tx token to
+ 8192
+
+Signed-off-by: sujuan.chen <sujuan.chen@mediatek.com>
+---
+ mt7915/mmio.c   |  8 ++++----
+ mt7915/mt7915.h |  4 ++--
+ tx.c            | 26 ++++++++------------------
+ 3 files changed, 14 insertions(+), 24 deletions(-)
+
+diff --git a/mt7915/mmio.c b/mt7915/mmio.c
+index aa5c5dd..b677947 100644
+--- a/mt7915/mmio.c
++++ b/mt7915/mmio.c
+@@ -593,7 +593,7 @@ static int mt7915_mmio_wed_offload_enable(struct mtk_wed_device *wed)
+ 	dev = container_of(wed, struct mt7915_dev, mt76.mmio.wed);
+ 
+ 	spin_lock_bh(&dev->mt76.token_lock);
+-	dev->mt76.token_size = wed->wlan.token_start;
++	dev->mt76.token_size = MT7915_TOKEN_SIZE - MT7915_HW_TOKEN_SIZE;
+ 	spin_unlock_bh(&dev->mt76.token_lock);
+ 
+ 	return !wait_event_timeout(dev->mt76.tx_wait,
+@@ -607,7 +607,7 @@ static void mt7915_mmio_wed_offload_disable(struct mtk_wed_device *wed)
+ 	dev = container_of(wed, struct mt7915_dev, mt76.mmio.wed);
+ 
+ 	spin_lock_bh(&dev->mt76.token_lock);
+-	dev->mt76.token_size = wed->wlan.token_start;//MT7915_TOKEN_SIZE
++	dev->mt76.token_size = MT7915_TOKEN_SIZE - MT7915_HW_TOKEN_SIZE;
+ 	spin_unlock_bh(&dev->mt76.token_lock);
+ }
+ 
+@@ -841,7 +841,7 @@ int mt7915_mmio_wed_init(struct mt7915_dev *dev, void *pdev_ptr,
+ 	wed->wlan.tx_tbit[0] = is_mt7915(&dev->mt76) ? 4 : 30;
+ 	wed->wlan.tx_tbit[1] = is_mt7915(&dev->mt76) ? 5 : 31;
+ 	wed->wlan.txfree_tbit = is_mt798x(&dev->mt76) ? 2 : 1;
+-	wed->wlan.token_start = MT7915_TOKEN_SIZE - wed->wlan.nbuf;
++	wed->wlan.token_start = 0;
+ 	wed->wlan.wcid_512 = !is_mt7915(&dev->mt76);
+ 
+ 	wed->wlan.rx_nbuf = 65536;
+@@ -874,7 +874,7 @@ int mt7915_mmio_wed_init(struct mt7915_dev *dev, void *pdev_ptr,
+ 
+ 	*irq = wed->irq;
+ 	dev->mt76.dma_dev = wed->dev;
+-	dev->mt76.token_size = wed->wlan.token_start;
++	dev->mt76.token_size = MT7915_TOKEN_SIZE - MT7915_HW_TOKEN_SIZE;
+ 
+ 	ret = dma_set_mask(wed->dev, DMA_BIT_MASK(32));
+ 	if (ret)
+diff --git a/mt7915/mt7915.h b/mt7915/mt7915.h
+index d47abcf..5f3b84e 100644
+--- a/mt7915/mt7915.h
++++ b/mt7915/mt7915.h
+@@ -62,8 +62,8 @@
+ #define MT7916_EEPROM_SIZE		4096
+ 
+ #define MT7915_EEPROM_BLOCK_SIZE	16
+-#define MT7915_HW_TOKEN_SIZE		7168
+-#define MT7915_TOKEN_SIZE		8192
++#define MT7915_HW_TOKEN_SIZE		8192
++#define MT7915_TOKEN_SIZE		9216
+ #define MT7915_RX_TOKEN_SIZE		4096
+ 
+ #define MT7915_CFEND_RATE_DEFAULT	0x49	/* OFDM 24M */
+diff --git a/tx.c b/tx.c
+index e290aef..96f9009 100644
+--- a/tx.c
++++ b/tx.c
+@@ -818,20 +818,18 @@ EXPORT_SYMBOL_GPL(__mt76_set_tx_blocked);
+ 
+ int mt76_token_consume(struct mt76_dev *dev, struct mt76_txwi_cache **ptxwi)
+ {
+-	int token;
++	int token, start = 0;
++
++	if (mtk_wed_device_active(&dev->mmio.wed))
++		start = dev->mmio.wed.wlan.nbuf;
+ 
+ 	spin_lock_bh(&dev->token_lock);
+ 
+-	token = idr_alloc(&dev->token, *ptxwi, 0, dev->token_size, GFP_ATOMIC);
+-	if (token >= 0)
++	token = idr_alloc(&dev->token, *ptxwi, start, start + dev->token_size,
++			  GFP_ATOMIC);
++	if (token >= start)
+ 		dev->token_count++;
+ 
+-#ifdef CONFIG_NET_MEDIATEK_SOC_WED
+-	if (mtk_wed_device_active(&dev->mmio.wed) &&
+-	    token >= dev->mmio.wed.wlan.token_start)
+-		dev->wed_token_count++;
+-#endif
+-
+ 	if (dev->token_count >= dev->token_size - MT76_TOKEN_FREE_THR)
+ 		__mt76_set_tx_blocked(dev, true);
+ 
+@@ -867,17 +865,9 @@ mt76_token_release(struct mt76_dev *dev, int token, bool *wake)
+ 	spin_lock_bh(&dev->token_lock);
+ 
+ 	txwi = idr_remove(&dev->token, token);
+-	if (txwi) {
++	if (txwi)
+ 		dev->token_count--;
+ 
+-#ifdef CONFIG_NET_MEDIATEK_SOC_WED
+-		if (mtk_wed_device_active(&dev->mmio.wed) &&
+-		    token >= dev->mmio.wed.wlan.token_start &&
+-		    --dev->wed_token_count == 0)
+-			wake_up(&dev->tx_wait);
+-#endif
+-	}
+-
+ 	if (dev->token_count < dev->token_size - MT76_TOKEN_FREE_THR &&
+ 	    dev->phy.q_tx[0]->blocked)
+ 		*wake = true;
+-- 
+2.18.0
+

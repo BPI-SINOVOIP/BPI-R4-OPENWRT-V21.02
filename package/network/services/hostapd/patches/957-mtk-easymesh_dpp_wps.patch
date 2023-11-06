@@ -1,0 +1,27 @@
+diff --git a/src/wps/wps_enrollee.c b/src/wps/wps_enrollee.c
+index a356b20..b310848 100644
+--- a/src/wps/wps_enrollee.c
++++ b/src/wps/wps_enrollee.c
+@@ -403,8 +403,8 @@ static struct wpabuf * wps_build_m7(struct wps_data *wps)
+ 	    wps_build_registrar_nonce(wps, msg) ||
+ 	    wps_build_e_snonce2(wps, plain) ||
+ 	    (wps->wps->ap && wps_build_ap_settings(wps, plain)) ||
+-#if defined(CONFIG_MTK_MAP) && !defined(HOSTAPD)
+-	    (((struct wpa_supplicant *)wps->wps->cb_ctx)->dpp_uri && wps_build_dpp_uri(wps, plain)) ||
++#if defined(CONFIG_MTK_MAP)
++	(wps->wps && wps->wps->cb_ctx && ((struct wpa_supplicant *)wps->wps->cb_ctx)->dpp_uri && wps_build_dpp_uri(wps, plain)) ||
+ #endif /* CONFIG_MTK_MAP */
+ 	    wps_build_key_wrap_auth(wps, plain) ||
+ 	    wps_build_encr_settings(wps, msg, plain) ||
+@@ -793,8 +793,9 @@ static int wps_process_creds(struct wps_data *wps, const u8 *cred[],
+ 	if (num_cred == 0) {
+ 		wpa_printf(MSG_DEBUG, "WPS: No Credential attributes "
+ 			   "received");
+-#if defined(CONFIG_MTK_MAP) && !defined(HOSTAPD)
+-		wpa_msg(wps->wps->cb_ctx, MSG_INFO, WPS_EVENT_CRED_RECEIVED);
++#if defined(CONFIG_MTK_MAP)
++		if (wps->wps && wps->wps->cb_ctx)
++			wpa_msg(wps->wps->cb_ctx, MSG_INFO, WPS_EVENT_CRED_RECEIVED);
+ #endif /* CONFIG_MTK_MAP */
+ 		return -1;
+ 	}

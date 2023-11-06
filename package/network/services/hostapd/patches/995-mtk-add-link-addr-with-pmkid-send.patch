@@ -1,0 +1,262 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/drv_callbacks.c
++++ hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+@@ -376,6 +376,10 @@ int hostapd_notif_assoc(struct hostapd_d
+ 				   "Failed to initialize WPA state machine");
+ 			return -1;
+ 		}
++		
++#ifdef CONFIG_MTK_IEEE80211BE
++		ml_new_assoc_sta(sta->wpa_sm, elems.ml, elems.ml_len);
++#endif
+ 		res = wpa_validate_wpa_ie(hapd->wpa_auth, sta->wpa_sm,
+ 					  hapd->iface->freq,
+ 					  ie, ielen,
+@@ -733,9 +737,6 @@ skip_wpa_check:
+ 		else
+			wpa_auth_sm_event(sta->wpa_sm, WPA_ASSOC);
+
+-#ifdef CONFIG_MTK_IEEE80211BE
+-	ml_new_assoc_sta(sta->wpa_sm, elems.ml, elems.ml_len);
+-#endif
+ 
+ 	hostapd_new_assoc_sta(hapd, sta, !new_assoc);
+
+Index: hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/ieee802_11.c
++++ hostapd-2022-07-29-b704dc72/src/ap/ieee802_11.c
+@@ -1038,9 +1038,13 @@ void sae_accept_sta(struct hostapd_data
+ 
+ #ifndef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ 		/*set PMKID in driver before sending Auth Confirm,else Assoc req rcv before pmkid is set  */
+-	wpa_auth_pmksa_add_sae(hapd->wpa_auth, sta->addr, aa,
++	wpa_auth_pmksa_add_sae(hapd->wpa_auth, spa, aa,
+ 			       sta->sae->pmk, sta->sae->pmk_len,
+-			       sta->sae->pmkid, sta->sae->akmp);
++			       sta->sae->pmkid, sta->sae->akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++				   ,sta->addr
++#endif
++	);
+ 	sae_sme_send_external_auth_status(hapd, sta, WLAN_STATUS_SUCCESS);
+ #endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+ }
+@@ -1698,7 +1702,11 @@ static void handle_auth_sae(struct hosta
+ 		/*set PMKID in driver before sending Auth Confirm,else Assoc_Req rcv before pmkid is set  */
+ 		wpa_auth_pmksa_add_sae(hapd->wpa_auth,
+ 					spa, aa, sta->sae->pmk, sta->sae->pmk_len,
+-					sta->sae->pmkid, sta->sae->akmp);
++					sta->sae->pmkid, sta->sae->akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++					,sta->addr
++#endif
++		);
+ #endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+ 		resp = sae_sm_step(hapd, sta, mgmt->bssid, auth_transaction,
+ 				   status_code, 0, &sta_removed);
+@@ -2656,7 +2664,11 @@ static int pasn_wd_handle_sae_confirm(st
+ 			       ml_auth_spa(sta->wpa_sm, sta->addr),
+ 			       ml_auth_aa(sta->wpa_sm, hapd->wpa_auth->addr),
+ 			       pasn->sae.pmk, pasn->sae.pmk_len,
+-			       pasn->sae.pmkid, pasn->sae.akmp);
++			       pasn->sae.pmkid, pasn->sae.akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++			   	   ,sta->addr
++#endif
++	);
+ 	return 0;
+ }
+ 
+@@ -4795,6 +4807,10 @@ static int check_assoc_ies(struct hostap
+ 				   "state machine");
+ 			return WLAN_STATUS_UNSPECIFIED_FAILURE;
+ 		}
++		
++#ifdef CONFIG_MTK_IEEE80211BE
++		ml_new_assoc_sta(sta->wpa_sm, elems.ml, elems.ml_len); /*for logan owe flow*/
++#endif
+ 		wpa_auth_set_auth_alg(sta->wpa_sm, sta->auth_alg);
+ 		res = wpa_validate_wpa_ie(hapd->wpa_auth, sta->wpa_sm,
+ 					  hapd->iface->freq,
+@@ -4867,9 +4883,6 @@ static int check_assoc_ies(struct hostap
+ 			return WLAN_STATUS_UNSPECIFIED_FAILURE;
+ 		}
+ #endif /* CONFIG_SAE */
+-#ifdef CONFIG_MTK_IEEE80211BE
+-	ml_new_assoc_sta(sta->wpa_sm, elems.ml, elems.ml_len); /*for logan owe flow*/
+-#endif
+ #ifdef CONFIG_OWE
+ 		if ((hapd->conf->wpa_key_mgmt & WPA_KEY_MGMT_OWE) &&
+ 		    wpa_auth_sta_key_mgmt(sta->wpa_sm) == WPA_KEY_MGMT_OWE &&
+Index: hostapd-2022-07-29-b704dc72/src/ap/pmksa_cache_auth.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/pmksa_cache_auth.c
++++ hostapd-2022-07-29-b704dc72/src/ap/pmksa_cache_auth.c
+@@ -119,6 +119,7 @@ void pmksa_cache_free_entry(struct rsn_p
+ 	pmkid_entry.AddRemove = 0;      /*remove entry*/
+ 	os_memcpy(pmkid_entry.sta, entry->spa, ETH_ALEN);
+ 	os_memcpy(pmkid_entry.bssid, wpa_auth->addr, ETH_ALEN);
++	os_memcpy(pmkid_entry.link_addr, pmksa->pmksa->spa, ETH_ALEN);
+ 	os_memcpy(pmkid_entry.pmkid, entry->pmkid, PMKID_LEN);
+ 	pmksa_update_sta_pmkid(hapd->drv_priv, &pmkid_entry);
+ #endif /*HOSTAPD_PMKID_IN_DRIVER_SUPPORT*/
+@@ -349,7 +350,11 @@ pmksa_cache_auth_add(struct rsn_pmksa_ca
+ 		     const u8 *pmk, size_t pmk_len, const u8 *pmkid,
+ 		     const u8 *kck, size_t kck_len,
+ 		     const u8 *aa, const u8 *spa, int session_timeout,
+-		     struct eapol_state_machine *eapol, int akmp)
++		     struct eapol_state_machine *eapol, int akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++			 ,const u8 *link_addr
++#endif
++		     )
+ {
+ 	struct rsn_pmksa_cache_entry *entry;
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+@@ -365,11 +370,12 @@ pmksa_cache_auth_add(struct rsn_pmksa_ca
+ 	if (pmksa_cache_auth_add_entry(pmksa, entry) < 0)
+ 		return NULL;
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+-	wpa_printf(MSG_DEBUG, "add PMKID in driver spa:"MACSTR" aa:"MACSTR"",
+-	MAC2STR(spa),MAC2STR(aa));
++	wpa_printf(MSG_DEBUG, "add PMKID in driver spa:"MACSTR" aa:"MACSTR" link addr:"MACSTR"",
++	MAC2STR(spa),MAC2STR(aa),MAC2STR(link_addr));
+ 	pmkid_entry.AddRemove = 1;	      /*Add PMKID in driver entry*/
+ 	os_memcpy(pmkid_entry.sta, spa, ETH_ALEN);
+ 	os_memcpy(pmkid_entry.bssid, aa, ETH_ALEN);
++	os_memcpy(pmkid_entry.link_addr, link_addr, ETH_ALEN);
+ 	os_memcpy(pmkid_entry.pmkid, entry->pmkid, PMKID_LEN);
+ 	wpa_auth = (struct wpa_authenticator *)(pmksa->ctx);
+ 	hapd = (struct hostapd_data *)(wpa_auth->cb_ctx);
+Index: hostapd-2022-07-29-b704dc72/src/ap/pmksa_cache_auth.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/pmksa_cache_auth.h
++++ hostapd-2022-07-29-b704dc72/src/ap/pmksa_cache_auth.h
+@@ -52,7 +52,11 @@ pmksa_cache_auth_add(struct rsn_pmksa_ca
+ 		     const u8 *pmk, size_t pmk_len, const u8 *pmkid,
+ 		     const u8 *kck, size_t kck_len,
+ 		     const u8 *aa, const u8 *spa, int session_timeout,
+-		     struct eapol_state_machine *eapol, int akmp);
++		     struct eapol_state_machine *eapol, int akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++			 ,const u8 *link_addr
++#endif
++);
+ struct rsn_pmksa_cache_entry *
+ pmksa_cache_auth_create_entry(const u8 *pmk, size_t pmk_len, const u8 *pmkid,
+ 			      const u8 *kck, size_t kck_len, const u8 *aa,
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.c
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.c
+@@ -4997,7 +4997,11 @@ int wpa_auth_pmksa_add(struct wpa_state_
+ 				NULL,
+ 				sm->PTK.kck, sm->PTK.kck_len,
+ 				ml_auth_aa(sm, sm->wpa_auth->addr), ml_auth_spa(sm, sm->addr), session_timeout,
+-				eapol, sm->wpa_key_mgmt))
++				eapol, sm->wpa_key_mgmt
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++				,sm->addr
++#endif
++	))
+ 		return 0;
+ 
+ 	return -1;
+@@ -5017,7 +5021,11 @@ int wpa_auth_pmksa_add_preauth(struct wp
+ 				 NULL, 0,
+ 				 aa,
+ 				 sta_addr, session_timeout, eapol,
+-				 WPA_KEY_MGMT_IEEE8021X))
++				 WPA_KEY_MGMT_IEEE8021X
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++				 ,sta_addr
++#endif
++	))
+ 		return 0;
+ 
+ 	return -1;
+@@ -5026,7 +5034,11 @@ int wpa_auth_pmksa_add_preauth(struct wp
+ 
+ int wpa_auth_pmksa_add_sae(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ 			   const u8 *aa, const u8 *pmk, size_t pmk_len,
+-			   const u8 *pmkid, int akmp)
++			   const u8 *pmkid, int akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++			   ,const u8 * link_addr
++#endif
++)
+ {
+ 	if (wpa_auth->conf.disable_pmksa_caching)
+ 		return -1;
+@@ -5035,7 +5047,11 @@ int wpa_auth_pmksa_add_sae(struct wpa_au
+ 	if (!akmp)
+ 		akmp = WPA_KEY_MGMT_SAE;
+ 	if (pmksa_cache_auth_add(wpa_auth->pmksa, pmk, pmk_len, pmkid,
+-				 NULL, 0, aa, addr, 0, NULL, akmp))
++				 NULL, 0, aa, addr, 0, NULL, akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++				 ,link_addr
++#endif
++	))
+ 		return 0;
+ 
+ 	return -1;
+@@ -5059,7 +5075,11 @@ int wpa_auth_pmksa_add2(struct wpa_authe
+ 	wpa_hexdump_key(MSG_DEBUG, "RSN: Cache PMK (2)", pmk, PMK_LEN);
+ 	if (pmksa_cache_auth_add(wpa_auth->pmksa, pmk, pmk_len, pmkid,
+ 				 NULL, 0, wpa_auth->addr, addr, session_timeout,
+-				 NULL, akmp))
++				 NULL, akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++				 ,addr
++#endif
++	))
+ 		return 0;
+ 
+ 	return -1;
+@@ -5075,7 +5095,11 @@ int wpa_auth_pmksa_add3(struct wpa_authe
+ 	wpa_hexdump_key(MSG_DEBUG, "RSN: Cache PMK (3)", pmk, PMK_LEN);
+ 	if (pmksa_cache_auth_add(wpa_auth->pmksa, pmk, pmk_len, pmkid,
+ 				 NULL, 0, aa, addr, session_timeout,
+-				 NULL, akmp))
++				 NULL, akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++				 ,addr
++#endif
++	))
+ 		return 0;
+ 
+ 	return -1;
+Index: hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/wpa_auth.h
++++ hostapd-2022-07-29-b704dc72/src/ap/wpa_auth.h
+@@ -429,7 +429,11 @@ int wpa_auth_pmksa_add_preauth(struct wp
+ 			       struct eapol_state_machine *eapol);
+ int wpa_auth_pmksa_add_sae(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ 			   const u8 *aa, const u8 *pmk, size_t pmk_len,
+-			   const u8 *pmkid, int akmp);
++			   const u8 *pmkid, int akmp
++#ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
++			   ,const u8 * link_addr
++#endif
++);
+ void wpa_auth_add_sae_pmkid(struct wpa_state_machine *sm, const u8 *pmkid);
+ int wpa_auth_pmksa_add2(struct wpa_authenticator *wpa_auth, const u8 *addr,
+ 			const u8 *pmk, size_t pmk_len, const u8 *pmkid,
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver.h
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+@@ -1276,7 +1276,8 @@ struct wowlan_triggers {
+ #ifdef HOSTAPD_PMKID_IN_DRIVER_SUPPORT
+ struct wpa_pmkid_entry {
+ 	u8 bssid[ETH_ALEN];
+-	u8 sta[ETH_ALEN];
++	u8 sta[ETH_ALEN]; /*MLD addr or link_addr*/
++	u8 link_addr[ETH_ALEN];
+ 	u8 pmkid[PMKID_LEN];
+ 	u8 AddRemove;   /*1- ADD, 0- Remove*/
+ };

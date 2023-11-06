@@ -1,0 +1,156 @@
+Index: hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ap/drv_callbacks.c
++++ hostapd-2022-07-29-b704dc72/src/ap/drv_callbacks.c
+@@ -1912,11 +1912,16 @@ err:
+ }
+ #endif /* CONFIG_OWE */
+ 
+-static int hostapd_event_bss_ml_info(struct hostapd_data *hapd,
++static int hostapd_event_bss_ml_info(struct hostapd_data *hapd, u8 event_id, 
+ 		u8 mld_grp_idx, u8 link_id, u8 *mld_addr)
+ {
+-	wpa_printf(MSG_DEBUG, "hostapd_event_bss_mlo_info, mld_grp_idx=%d, link_id=%d\n", mld_grp_idx, link_id);
+-	ml_group_init(hapd, mld_grp_idx, link_id, mld_addr);
++	wpa_printf(MSG_DEBUG, "ML: hostapd_event_bss_mlo_info, hapd:%p, add link:%d, mld_grp_idx=%d, link_id=%d, MLD addr " MACSTR "\n", hapd, event_id, mld_grp_idx, link_id, MAC2STR(mld_addr));
++	if (event_id == 0)
++		ml_group_init(hapd, mld_grp_idx, link_id, mld_addr);
++	else if (event_id == 1)
++		ml_group_deinit_for_reconfig(hapd);
++	else
++		wpa_printf(MSG_DEBUG, "ML: hostapd_event_bss_mlo_info, invalid add link event id:%d, it shall be 0 or 1\n", event_id);
+ }
+ 
+ void hostapd_wpa_event(void *ctx, enum wpa_event_type event,
+@@ -2160,7 +2165,7 @@ void hostapd_wpa_event(void *ctx, enum w
+ 			data->wds_sta_interface.sta_addr);
+ 		break;
+ 	case EVENT_UPDATE_BSS_ML_INFO:
+-		hostapd_event_bss_ml_info(hapd,
++		hostapd_event_bss_ml_info(hapd, data->ml_info_event.link_cnt,
+ 			data->ml_info_event.mld_grp_idx,
+ 			data->ml_info_event.link_id, data->ml_info_event.addr);
+ 		break;
+Index: hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/drivers/driver.h
++++ hostapd-2022-07-29-b704dc72/src/drivers/driver.h
+@@ -6225,7 +6225,7 @@ union wpa_event_data {
+ 	} bss_color_collision;
+ 
+ 	struct ml_info_event {
+-		u8 link_cnt;
++		u8 link_cnt; /* 0: add link, 1: remove link ,it is event id in driver*/
+ 		u8 mld_grp_idx;
+ 		u8 link_id;
+ 		u8 addr[ETH_ALEN];
+Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ml/ml_common.c
++++ hostapd-2022-07-29-b704dc72/src/ml/ml_common.c
+@@ -619,7 +619,7 @@ const u8 * ml_auth_aa(struct wpa_state_m
+ 
+ /* AP */
+ struct wpa_ml_link * ml_setup_link(struct hostapd_data *hapd,
+-	struct wpa_ml_group *ml_group, u8 link_id)
++	struct wpa_ml_group *ml_group, u8 link_id, u8 *mld_addr)
+ {
+ 	struct wpa_ml_link *links, *link;
+ 
+@@ -634,9 +634,10 @@ struct wpa_ml_link * ml_setup_link(struc
+ 	link->ctx = hapd;
+ 	link->link_id = link_id;
+ 	os_memcpy(link->addr, hapd->own_addr, ETH_ALEN);
++	os_memcpy(ml_group->ml_addr, mld_addr, ETH_ALEN);  /*for mlo reconfig*/
+ 	hapd->ml_group = ml_group;
+ 
+-	wpa_printf(MSG_INFO, "ML: Join ML Group=%p, link_id=%d, ml_group->ml_link_num=%lu", ml_group, link_id, ml_group->ml_link_num);
++	wpa_printf(MSG_INFO, "ML: Join ML Group=%p, link:%p, link_id=%d, ml_group->ml_link_num=%lu", ml_group, link, link_id, ml_group->ml_link_num);
+ 
+ 	return link;
+ }
+@@ -709,19 +710,19 @@ int ml_group_init(struct hostapd_data *h
+ 		for (i = 0; i < ml_group->ml_link_num; i++) {
+ 			link = &ml_group->links[i];
+ 			if (link->ctx == hapd) {
+-				wpa_printf(MSG_INFO, "ML: reinit link");
++				wpa_printf(MSG_INFO, "ML: reinit link:%p", link);
+ 				return -1;
+ 			}
+ 		}
+ 		wpa_printf(MSG_INFO, "ML: group has created,join it");
+-		if (ml_setup_link(hapd, ml_group, link_id) == NULL)
++		if (ml_setup_link(hapd, ml_group, link_id, mld_addr) == NULL)
+ 			return -1;
+ 	} else {
+ 		ml_group = ml_alloc_group(hapd, mld_grp_idx, mld_addr);
+ 		if (ml_group == NULL)
+ 			return -1;
+ 		wpa_printf(MSG_INFO, "ML: creat group");
+-		if (ml_setup_link(hapd, ml_group, link_id) == NULL) {
++		if (ml_setup_link(hapd, ml_group, link_id, mld_addr) == NULL) {
+ 			os_free(ml_group);
+ 			return -1;
+ 		}
+@@ -731,6 +732,39 @@ done:
+ 	return 0;
+ }
+ 
++int ml_group_deinit_for_reconfig(struct hostapd_data *hapd)
++{
++	struct wpa_ml_group *ml_group = hapd->ml_group;
++	struct wpa_ml_link *link;
++	size_t i, k = 0;
++
++	if (!ml_group)
++		return -1;
++
++	for (i = 0; i < ml_group->ml_link_num; i++) {
++		link = &ml_group->links[i];
++		if (link == NULL)
++			continue;
++
++		if (link->ctx == hapd) {
++			wpa_printf(MSG_INFO, "ML: mlo reconfig Remove link %d", link->link_id);
++			k = i;
++			while (k < (ml_group->ml_link_num - 1)) {
++				os_memcpy(&ml_group->links[k],
++					&ml_group->links[k + 1], sizeof(*link));
++				k++;
++			}
++			ml_group->ml_link_num--;
++			if (ml_group->ml_link_num >=0 && ml_group->ml_link_num <16) {
++				wpa_printf(MSG_INFO, "ML: mlo reconfig free the link num:%lu, links:%p", ml_group->ml_link_num + 1, &ml_group->links[ml_group->ml_link_num]);
++				ml_group->links = os_realloc_array(ml_group->links, ml_group->ml_link_num, sizeof(struct wpa_ml_link));
++			}
++		}
++	}
++
++	return 0;
++}
++
+ int ml_group_deinit(struct hostapd_data *hapd)
+ {
+ 	struct wpa_ml_group *ml_group = hapd->ml_group;
+@@ -746,7 +780,7 @@ int ml_group_deinit(struct hostapd_data
+ 			continue;
+ 
+ 		if (link->ctx == hapd) {
+-			wpa_printf(MSG_INFO, "Remove link %d", link->link_id);
++			wpa_printf(MSG_INFO, "ML: Remove link %d", link->link_id);
+ 			k = i;
+ 			while (k < (ml_group->ml_link_num - 1)) {
+ 				os_memcpy(&ml_group->links[k],
+Index: hostapd-2022-07-29-b704dc72/src/ml/ml_common.h
+===================================================================
+--- hostapd-2022-07-29-b704dc72.orig/src/ml/ml_common.h
++++ hostapd-2022-07-29-b704dc72/src/ml/ml_common.h
+@@ -206,7 +206,7 @@ int ml_sae_write_auth(struct hostapd_dat
+ /* AP */
+ int ml_group_init(struct hostapd_data *hapd, u8 mld_grp_idx, u8 link_id, u8 *mld_addr);
+ int ml_group_deinit(struct hostapd_data *hapd);
+-
++int ml_group_deinit_for_reconfig(struct hostapd_data *hapd);
+ int ml_new_assoc_sta(struct wpa_state_machine *sm, const u8 *ie, size_t len);
+ u8* ml_add_m1_kde(struct wpa_state_machine *sm, u8 *pos);
+ int ml_process_m2_kde(struct wpa_state_machine *sm,

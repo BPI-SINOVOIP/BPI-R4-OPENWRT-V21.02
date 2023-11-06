@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d8dd34a..07e37a5 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -23,8 +23,8 @@ OPTION(FS_SUPPORT "Filesystem plugin support" ON)
+ OPTION(MATH_SUPPORT "Math plugin support" ON)
+ OPTION(UBUS_SUPPORT "Ubus plugin support" ON)
+ OPTION(UCI_SUPPORT "UCI plugin support" ON)
+-OPTION(RTNL_SUPPORT "Route Netlink plugin support" ${LINUX})
+-OPTION(NL80211_SUPPORT "Wireless Netlink plugin support" ${LINUX})
++OPTION(RTNL_SUPPORT "Route Netlink plugin support" ON)
++OPTION(NL80211_SUPPORT "Wireless Netlink plugin support" ON)
+ OPTION(RESOLV_SUPPORT "NS resolve plugin support" ON)
+ OPTION(STRUCT_SUPPORT "Struct plugin support" ON)
+ OPTION(ULOOP_SUPPORT "Uloop plugin support" ON)
